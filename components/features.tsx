@@ -54,7 +54,7 @@ export function Features() {
               {t("features.title")}
             </h2>
           </div>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">{t("features.subtitle")}</p>
+          <p className="text-xl text-white max-w-3xl mx-auto">{t("features.subtitle")}</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -69,8 +69,8 @@ export function Features() {
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-premium">{t(feature.titleKey)}</h3>
-                  <p className="text-muted-foreground leading-relaxed">{t(feature.descKey)}</p>
+                  <h3 className="text-xl font-bold text-premium">{t(feature.titleKey)}</h3>
+                  <p className="text-white leading-relaxed">{t(feature.descKey)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -81,22 +81,22 @@ export function Features() {
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div className="space-y-4">
               <h3 className="text-2xl font-bold text-premium text-glow">Built for Indian Legal System</h3>
-              <p className="text-muted-foreground leading-relaxed">
+              <p className="text-white leading-relaxed">
                 Our AI is specifically trained on Indian laws, regulations, and legal procedures. From the Indian Penal
                 Code to the Constitution of India, we understand the nuances of the Indian judicial system.
               </p>
               <div className="flex items-center gap-4 pt-4">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                  <span className="text-sm text-muted-foreground">IPC Coverage</span>
+                  <span className="text-sm text-white">IPC Coverage</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                  <span className="text-sm text-muted-foreground">Constitutional Law</span>
+                  <span className="text-sm text-white">Constitutional Law</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                  <span className="text-sm text-muted-foreground">Civil Procedures</span>
+                  <span className="text-sm text-white">Civil Procedures</span>
                 </div>
               </div>
             </div>

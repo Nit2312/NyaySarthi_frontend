@@ -3,18 +3,26 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabase-client"
+import type { AuthChangeEvent, Session, User as SupabaseUser } from "@supabase/supabase-js"
 
-interface User {
+interface AppUser {
   id: string
   name: string
   email: string
-  role: "lawyer" | "judge" | "citizen"
 }
 
 interface AuthContextType {
-  user: User | null
-  login: (email: string, password: string) => Promise<boolean>
-  signup: (name: string, email: string, password: string, role: "lawyer" | "judge" | "citizen") => Promise<boolean>
+  user: AppUser | null
+  login: (
+    email: string,
+    password: string,
+  ) => Promise<{ ok: true; message?: string } | { ok: false; error: string }>
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+  ) => Promise<{ ok: true; message?: string } | { ok: false; error: string }>
   logout: () => void
   isLoading: boolean
   redirectToDashboard: () => void
@@ -23,89 +31,124 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<AppUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
-    // Check for stored user session - make this faster
-    const storedUser = localStorage.getItem("nyay-sarthi-user")
-    if (storedUser) {
+    const ensureProfile = async (u: SupabaseUser) => {
+      const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
       try {
-        setUser(JSON.parse(storedUser))
-      } catch (error) {
-        localStorage.removeItem("nyay-sarthi-user")
+        await supabase.from("profiles").upsert({ id: u.id, name: profileName, email: u.email || "" })
+      } catch (_) {
+        // ignore; may be blocked by RLS if session not fully established yet
       }
     }
-    setIsLoading(false)
+
+    const init = async () => {
+      const { data } = await supabase.auth.getSession()
+      const s = data.session
+      if (s?.user) {
+        const u = s.user
+        const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
+        setUser({ id: u.id, name: profileName, email: u.email || "" })
+        // Ensure profile row exists on load
+        await ensureProfile(u)
+      }
+      setIsLoading(false)
+    }
+    init()
+
+    const { data: sub } = supabase.auth.onAuthStateChange((
+      _event: AuthChangeEvent,
+      session: Session | null,
+    ) => {
+      if (session?.user) {
+        const u = session.user
+        const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
+        setUser({ id: u.id, name: profileName, email: u.email || "" })
+        // Ensure profile row exists after auth changes (login/signup)
+        ensureProfile(u)
+      } else {
+        setUser(null)
+      }
+    })
+
+    return () => {
+      sub.subscription.unsubscribe()
+    }
   }, [])
 
   const redirectToDashboard = () => {
     router.push("/dashboard")
   }
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (
+    email: string,
+    password: string,
+  ): Promise<{ ok: true; message?: string } | { ok: false; error: string }> => {
     setIsLoading(true)
-
-    // Reduce API call simulation time
-    await new Promise((resolve) => setTimeout(resolve, 300))
-
-    // Mock authentication - in real app, this would be an API call
-    if (email && password.length >= 6) {
-      const mockUser: User = {
-        id: "1",
-        name: email.split("@")[0],
-        email,
-        role: email.includes("judge") ? "judge" : email.includes("lawyer") ? "lawyer" : "citizen",
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error || !data.session?.user) {
+        setIsLoading(false)
+        return { ok: false, error: (error as any)?.message || (error as any)?.error_description || "Invalid login credentials" }
       }
-
-      setUser(mockUser)
-      localStorage.setItem("nyay-sarthi-user", JSON.stringify(mockUser))
+      const u = data.session.user
+      const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
+      setUser({ id: u.id, name: profileName, email: u.email || "" })
       setIsLoading(false)
-      // Automatically redirect to dashboard after successful login
       redirectToDashboard()
-      return true
+      return { ok: true, message: "Logged in successfully" }
+    } catch (e: any) {
+      setIsLoading(false)
+      return { ok: false, error: e?.message || "Login failed" }
     }
-
-    setIsLoading(false)
-    return false
   }
 
   const signup = async (
     name: string,
     email: string,
     password: string,
-    role: "lawyer" | "judge" | "citizen",
-  ): Promise<boolean> => {
+  ): Promise<{ ok: true; message?: string } | { ok: false; error: string }> => {
     setIsLoading(true)
-
-    // Reduce API call simulation time
-    await new Promise((resolve) => setTimeout(resolve, 300))
-
-    // Mock registration
-    if (name && email && password.length >= 6) {
-      const newUser: User = {
-        id: Date.now().toString(),
-        name,
+    try {
+      const { data, error } = await supabase.auth.signUp({
         email,
-        role,
+        password,
+        options: { data: { name } },
+      })
+      if (error || !data.user) {
+        setIsLoading(false)
+        return { ok: false, error: (error as any)?.message || (error as any)?.error_description || "Registration failed" }
       }
 
-      setUser(newUser)
-      localStorage.setItem("nyay-sarthi-user", JSON.stringify(newUser))
-      setIsLoading(false)
-      // Automatically redirect to dashboard after successful signup
-      redirectToDashboard()
-      return true
-    }
+      // Create or update profile row (requires a 'profiles' table with RLS allowing user)
+      try {
+        await supabase.from("profiles").upsert({ id: data.user.id, name, email })
+      } catch (_) {
+        // ignore if table not ready; auth still succeeds
+      }
 
-    setIsLoading(false)
-    return false
+      // Some projects require email confirmation; if so, session may be null
+      if (data.session?.user) {
+        const u = data.session.user
+        setUser({ id: u.id, name, email: u.email || email })
+        redirectToDashboard()
+        setIsLoading(false)
+        return { ok: true, message: "Signed up and logged in successfully" }
+      }
+      setIsLoading(false)
+      return { ok: true, message: "Signup successful. Please check your email to confirm." }
+    } catch (e: any) {
+      setIsLoading(false)
+      return { ok: false, error: e?.message || "Registration failed" }
+    }
   }
 
   const logout = () => {
+    supabase.auth.signOut()
     setUser(null)
-    localStorage.removeItem("nyay-sarthi-user")
     router.push("/")
   }
 

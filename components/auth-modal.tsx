@@ -24,28 +24,33 @@ export function AuthModal({ isOpen, onClose, mode, onSwitchMode }: AuthModalProp
     name: "",
     email: "",
     password: "",
-    role: "citizen" as "lawyer" | "judge" | "citizen",
   })
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccess("")
 
     try {
-      let success = false
+      let result: { ok: true; message?: string } | { ok: false; error: string }
       if (mode === "login") {
-        success = await login(formData.email, formData.password)
+        result = await login(formData.email.trim(), formData.password)
       } else {
-        success = await signup(formData.name, formData.email, formData.password, formData.role)
+        result = await signup(formData.name.trim(), formData.email.trim(), formData.password)
       }
 
-      if (success) {
-        onClose()
-        setFormData({ name: "", email: "", password: "", role: "citizen" })
-        // Redirect is now handled automatically by the auth context
+      if (result.ok) {
+        setSuccess(result.message || (mode === "login" ? "Logged in successfully" : "Signup successful"))
+        setFormData({ name: "", email: "", password: "" })
+        // Close a bit later so user sees the message; redirect handled in context
+        setTimeout(() => {
+          onClose()
+          setSuccess("")
+        }, 900)
       } else {
-        setError(mode === "login" ? "Invalid credentials" : "Registration failed")
+        setError(result.error || (mode === "login" ? "Invalid credentials" : "Registration failed"))
       }
     } catch (err) {
       setError("An error occurred. Please try again.")
@@ -140,32 +145,11 @@ export function AuthModal({ isOpen, onClose, mode, onSwitchMode }: AuthModalProp
               </div>
             </div>
 
-            {mode === "signup" && (
-              <div className="space-y-2">
-                <Label htmlFor="role" className="text-white/90 font-medium">
-                  {t("auth.role")}
-                </Label>
-                <select
-                  id="role"
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-                  className="w-full px-3 py-2 glass-input border-white/20 text-white bg-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-white/30"
-                >
-                  <option value="citizen" className="bg-gray-900 text-white">
-                    {t("auth.citizen")}
-                  </option>
-                  <option value="lawyer" className="bg-gray-900 text-white">
-                    {t("auth.lawyer")}
-                  </option>
-                  <option value="judge" className="bg-gray-900 text-white">
-                    {t("auth.judge")}
-                  </option>
-                </select>
-              </div>
-            )}
-
             {error && (
               <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/30 text-red-200 text-sm">{error}</div>
+            )}
+            {success && (
+              <div className="p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 text-sm">{success}</div>
             )}
 
             <Button type="submit" disabled={isLoading} className="w-full premium-button text-lg py-3 font-semibold">
@@ -176,7 +160,7 @@ export function AuthModal({ isOpen, onClose, mode, onSwitchMode }: AuthModalProp
           {/* Switch Mode */}
           <div className="mt-6 text-center">
             <p className="text-white/70">
-              {mode === "login" ? t("auth.noAccount") : t("auth.haveAccount")}{" "}
+              {mode === "login" ? t("auth.noAccount") : t("auth.haveAccount")} {""}
               <button
                 onClick={onSwitchMode}
                 className="text-white hover:text-white/80 font-semibold underline transition-colors"
@@ -190,3 +174,4 @@ export function AuthModal({ isOpen, onClose, mode, onSwitchMode }: AuthModalProp
     </div>
   )
 }
+

@@ -43,7 +43,7 @@ export function Advantages() {
       <div className="container mx-auto max-w-6xl">
         <div className="text-center space-y-4 mb-16">
           <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans">{t("advantages.title")}</h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">{t("advantages.subtitle")}</p>
+          <p className="text-xl text-muted-white max-w-3xl mx-auto">{t("advantages.subtitle")}</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">

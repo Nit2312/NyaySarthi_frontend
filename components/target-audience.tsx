@@ -48,7 +48,7 @@ export function TargetAudience() {
               {t("audience.title")}
             </h2>
           </div>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">{t("audience.subtitle")}</p>
+          <p className="text-xl text-white max-w-3xl mx-auto">{t("audience.subtitle")}</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -65,8 +65,8 @@ export function TargetAudience() {
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-premium">{t(audience.titleKey)}</h3>
-                  <p className="text-muted-foreground leading-relaxed text-sm">{t(audience.descKey)}</p>
+                  <h3 className="text-xl font-bold text-premium">{t(audience.titleKey)}</h3>
+                  <p className="text-white leading-relaxed text-sm">{t(audience.descKey)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -85,7 +85,7 @@ export function TargetAudience() {
             </div>
             <div className="space-y-4">
               <h3 className="text-2xl font-bold text-premium text-glow">Trusted by Legal Professionals</h3>
-              <p className="text-muted-foreground leading-relaxed">
+              <p className="text-white leading-relaxed">
                 Join thousands of Indian legal professionals who trust Nyay Sarthi for accurate legal guidance. From
                 High Court advocates to district court lawyers, our platform serves the entire legal community with
                 precision and reliability.
