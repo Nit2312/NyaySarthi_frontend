@@ -59,12 +59,12 @@ export function Advantages() {
 
                 <div className="space-y-2">
                   <h3 className="text-2xl font-bold font-dm-sans">{t(advantage.titleKey)}</h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">{t(advantage.descKey)}</p>
+                  <p className="text-muted-white text-sm leading-relaxed">{t(advantage.descKey)}</p>
                 </div>
 
                 <div className="pt-4 border-t border-border/20">
                   <div className="text-3xl font-bold text-primary">{advantage.stat}</div>
-                  <div className="text-xs text-muted-foreground">{advantage.statLabel}</div>
+                  <div className="text-xs text-muted-white">{advantage.statLabel}</div>
                 </div>
               </CardContent>
             </Card>

@@ -46,7 +46,7 @@ export function Features() {
         <div className="text-center space-y-4 mb-16">
           <div className="flex items-center justify-center gap-4 mb-6">
             <img
-              src="/images/supreme-court-india.png"
+              src="/images/scales-justice.png"
               alt="Supreme Court of India"
               className="w-16 h-16 rounded-lg object-cover glow-subtle"
             />
@@ -61,7 +61,7 @@ export function Features() {
           {features.map((feature, index) => (
             <Card
               key={index}
-              className="glass-premium floating-element hover:scale-105 transition-transform duration-300 glow-subtle hover:glow-medium border border-white/10"
+              className="glass-premium floating-element hover:scale-105 transition-transform duration-300 glow-subtle hover:glow-medium bg-black/35 backdrop-blur-md border border-white/10"
             >
               <CardContent className="p-6 space-y-4">
                 <div className="w-12 h-12 glass-subtle rounded-lg flex items-center justify-center glow-subtle">
@@ -77,7 +77,7 @@ export function Features() {
           ))}
         </div>
 
-        <div className="mt-16 glass-premium rounded-3xl p-8 glow-strong border border-white/10">
+        <div className="mt-16 glass-premium rounded-3xl p-8 glow-strong bg-black/35 backdrop-blur-md border border-white/10">
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div className="space-y-4">
               <h3 className="text-2xl font-bold text-premium text-glow">Built for Indian Legal System</h3>
@@ -102,7 +102,7 @@ export function Features() {
             </div>
             <div className="relative">
               <img
-                src="/images/supreme-court-india.png"
+                src="/images/indian_law.jpeg"
                 alt="Supreme Court of India Building"
                 className="w-full h-64 rounded-2xl object-cover glow-medium"
               />

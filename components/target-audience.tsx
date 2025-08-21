@@ -77,7 +77,7 @@ export function TargetAudience() {
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div className="relative">
               <img
-                src="/images/indian-lawyer.png"
+                src="/images/courtroom.webp"
                 alt="Indian Legal Professional"
                 className="w-full h-64 rounded-2xl object-cover glow-medium"
               />

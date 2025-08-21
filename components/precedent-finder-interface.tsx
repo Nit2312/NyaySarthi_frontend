@@ -167,7 +167,7 @@ export function PrecedentFinderInterface() {
               <Button
                 onClick={handleSearch}
                 disabled={isSearching}
-                className="bg-gradient-to-r from-white/20 to-white/10 hover:from-white/30 hover:to-white/20 text-white border-white/20 h-12 px-8"
+                className="bg-gradient-to-r from-white/20 to-white/10 hover:from-white/30 hover:to-white/20 text-black border-white/20 h-12 px-8"
               >
                 {isSearching ? (
                   <div className="flex items-center gap-2">

@@ -250,7 +250,7 @@ export function PremiumFooter() {
                   </Badge>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span>{language === "en" ? "Made with" : "के साथ बनाया गया"}</span>
-                    <Heart className="w-4 h-4 text-red-400 glow-subtle" />
+                    {/* <Heart className="w-4 h-4 text-red-400 glow-subtle" /> */}
                     <span>{language === "en" ? "in India" : "भारत में"}</span>
                   </div>
                 </div>
