@@ -79,6 +79,9 @@ export function DashboardChatInterface() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string>(
+    () => (typeof window !== 'undefined' ? localStorage.getItem('conversationId') || '' : '')
+  )
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -90,6 +93,37 @@ export function DashboardChatInterface() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  // Persist messages to localStorage when they change
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!conversationId) return
+    try {
+      const serializable = messages.map(m => ({
+        ...m,
+        timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+      }))
+      localStorage.setItem(`chatHistory:${conversationId}`, JSON.stringify(serializable))
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, [messages, conversationId])
+
+  // Load messages from localStorage on initial mount and when conversation changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!conversationId) return
+    try {
+      const raw = localStorage.getItem(`chatHistory:${conversationId}`)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Array<Omit<Message, 'timestamp'> & { timestamp: string }>
+        const restored: Message[] = parsed.map(p => ({ ...p, timestamp: new Date(p.timestamp) }))
+        setMessages(restored)
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }, [conversationId])
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return
@@ -108,16 +142,63 @@ export function DashboardChatInterface() {
     setApiError(null)
 
     try {
-      const response = await ApiService.sendChatMessage(currentInput)
-      
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        content: response.response,
-        sender: "ai",
-        timestamp: new Date(),
-        category: "Legal Advice",
+      // Ensure we have a conversation id for this thread
+      let convId = conversationId
+      if (!convId) {
+        convId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        setConversationId(convId)
+        if (typeof window !== 'undefined') localStorage.setItem('conversationId', convId)
       }
-      setMessages((prev) => [...prev, aiResponse])
+
+      const response = await ApiService.sendChatMessage(currentInput, convId)
+
+      // If the backend routed to Indian Kanoon and returned cases, render a case-wise summary block
+      if (response.cases && response.cases.length > 0) {
+        const caseBlocks = response.cases
+          .map((c, idx) => {
+            const header = `${idx + 1}) ${c.title}${c.court ? ` — ${c.court}` : ''}${c.date ? ` (${new Date(c.date).toLocaleDateString()})` : ''}${c.citation ? ` [${c.citation}]` : ''}`
+            const body = c.summary ? `\n${c.summary}` : ''
+            const link = c.url ? `\nLink: ${c.url}` : ''
+            return `${header}${body}${link}`
+          })
+          .join("\n\n")
+
+        const aiResponse: Message = {
+          id: (Date.now() + 1).toString(),
+          content: `I found ${response.cases.length} potentially relevant cases.\n\n${caseBlocks}`,
+          sender: "ai",
+          timestamp: new Date(),
+          category: "Case Matches",
+        }
+        setMessages((prev) => [...prev, aiResponse])
+      } else if (response.source === 'indian_kanoon') {
+        // Case-search path but 0 cases; include diagnostic if available
+        const diag = response.ik_error
+          ? `\n\nNote: Case search returned 0 results (diagnostic: ${response.ik_error}). If this persists, please ensure INDIAN_KANOON_EMAIL and INDIAN_KANOON_API_KEY are set on the backend and valid.`
+          : ''
+        const aiResponse: Message = {
+          id: (Date.now() + 1).toString(),
+          content: `${response.response}${diag}`,
+          sender: "ai",
+          timestamp: new Date(),
+          category: "Case Matches",
+        }
+        setMessages((prev) => [...prev, aiResponse])
+      } else {
+        const aiResponse: Message = {
+          id: (Date.now() + 1).toString(),
+          content: response.response,
+          sender: "ai",
+          timestamp: new Date(),
+          category: "Legal Advice",
+        }
+        setMessages((prev) => [...prev, aiResponse])
+      }
+      // Update conv id from backend if provided
+      if (response.conversation_id && response.conversation_id !== conversationId) {
+        setConversationId(response.conversation_id)
+        if (typeof window !== 'undefined') localStorage.setItem('conversationId', response.conversation_id)
+      }
     } catch (error) {
       console.error('Failed to get AI response:', error)
       setApiError('Failed to get response from AI. Please try again.')
@@ -147,6 +228,22 @@ export function DashboardChatInterface() {
 
   const loadPreviousChat = useCallback((chatId: string) => {
     setActiveChat(chatId)
+    // Switch the conversation id to match selected chat thread
+    setConversationId(chatId)
+    if (typeof window !== 'undefined') localStorage.setItem('conversationId', chatId)
+    // Try to load stored messages for this chat
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem(`chatHistory:${chatId}`)
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as Array<Omit<Message, 'timestamp'> & { timestamp: string }>
+          const restored: Message[] = parsed.map(p => ({ ...p, timestamp: new Date(p.timestamp) }))
+          setMessages(restored)
+          return
+        } catch {}
+      }
+    }
+    // Fallback to example content if no stored history
     const chat = recentChats.find((c) => c.id === chatId)
     if (chat) {
       setMessages([
@@ -176,6 +273,9 @@ export function DashboardChatInterface() {
   const startNewChat = useCallback(() => {
     setActiveChat(null)
     setApiError(null)
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setConversationId(newId)
+    if (typeof window !== 'undefined') localStorage.setItem('conversationId', newId)
     setMessages([
       {
         id: "new-1",
@@ -187,6 +287,10 @@ export function DashboardChatInterface() {
         timestamp: new Date(),
       },
     ])
+    // Clear any existing history for this new conversation id
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(`chatHistory:${newId}`) } catch {}
+    }
   }, [language])
 
   const handleFileUpload = useCallback(() => {

@@ -5,6 +5,7 @@ import "./globals.css"
 import { LanguageProvider } from "@/lib/language-context"
 import { AuthProvider } from "@/lib/auth-context"
 import { UserDataProvider } from "@/lib/user-data-service"
+import { Toaster } from "@/components/ui/toaster"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -35,7 +36,10 @@ export default function RootLayout({
       <body className="font-sans antialiased" suppressHydrationWarning={true}>
         <AuthProvider>
           <LanguageProvider>
-            <UserDataProvider>{children}</UserDataProvider>
+            <UserDataProvider>
+              {children}
+              <Toaster />
+            </UserDataProvider>
           </LanguageProvider>
         </AuthProvider>
       </body>

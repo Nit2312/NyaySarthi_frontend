@@ -7,10 +7,13 @@ const nextConfig = {
     removeConsole: process.env.NODE_ENV === 'production',
   },
   images: {
-    domains: ['localhost'],
+    // Use remotePatterns instead of deprecated images.domains
+    remotePatterns: [
+      { protocol: 'http', hostname: 'localhost' },
+      { protocol: 'https', hostname: 'localhost' },
+    ],
   },
   // Optimize for faster page transitions
-  swcMinify: true,
   compress: true,
   poweredByHeader: false,
   // Enable static optimization where possible

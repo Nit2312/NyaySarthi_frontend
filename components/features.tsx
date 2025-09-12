@@ -44,13 +44,13 @@ export function Features() {
     <section className="py-20 px-4">
       <div className="container mx-auto max-w-6xl">
         <div className="text-center space-y-4 mb-16">
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <img
-              src="/images/scales-justice.png"
+          <div className="flex items-center justify-center gap-4 mb-4">
+            {/* <img
+              src="/images/indian-lawyer.png"
               alt="Supreme Court of India"
               className="w-16 h-16 rounded-lg object-cover glow-subtle"
-            />
-            <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans text-premium text-glow">
+            /> */}
+            <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans text-premium text-glow leading-snug pb-2">
               {t("features.title")}
             </h2>
           </div>

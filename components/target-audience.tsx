@@ -44,7 +44,7 @@ export function TargetAudience() {
               alt="Indian Constitution"
               className="w-16 h-16 rounded-lg object-cover glow-subtle"
             />
-            <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans text-premium text-glow">
+            <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans text-premium text-glow leading-snug pb-2">
               {t("audience.title")}
             </h2>
           </div>

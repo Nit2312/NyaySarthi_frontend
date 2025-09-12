@@ -87,6 +87,11 @@ function NavigationContent() {
 
               {user ? (
                 <>
+                  <Link href="/precedents">
+                    <Button variant="ghost" size="sm">
+                      Precedents
+                    </Button>
+                  </Link>
                   <Link href="/resources">
                     <Button variant="ghost" size="sm">
                       Resources
@@ -183,6 +188,11 @@ function NavigationContent() {
 
                 {user ? (
                   <>
+                    <Link href="/precedents">
+                      <Button variant="ghost" size="sm" className="w-full justify-start">
+                        Precedents
+                      </Button>
+                    </Link>
                     <Link href="/resources">
                       <Button variant="ghost" size="sm" className="w-full justify-start">
                         Resources

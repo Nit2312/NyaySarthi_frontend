@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase-client"
 import type { AuthChangeEvent, Session, User as SupabaseUser } from "@supabase/supabase-js"
+import { toast } from "@/hooks/use-toast"
 
 interface AppUser {
   id: string
@@ -92,17 +93,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error || !data.session?.user) {
         setIsLoading(false)
-        return { ok: false, error: (error as any)?.message || (error as any)?.error_description || "Invalid login credentials" }
+        const errMsg = (error as any)?.message || (error as any)?.error_description || "Invalid login credentials"
+        toast({
+          title: "Login failed",
+          description: errMsg,
+          variant: "destructive",
+        })
+        return { ok: false, error: errMsg }
       }
       const u = data.session.user
       const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
       setUser({ id: u.id, name: profileName, email: u.email || "" })
       setIsLoading(false)
       redirectToDashboard()
+      toast({ title: "Logged in", description: "Logged in successfully" })
       return { ok: true, message: "Logged in successfully" }
     } catch (e: any) {
       setIsLoading(false)
-      return { ok: false, error: e?.message || "Login failed" }
+      const errMsg = e?.message || "Login failed"
+      toast({ title: "Login failed", description: errMsg, variant: "destructive" })
+      return { ok: false, error: errMsg }
     }
   }
 
@@ -120,7 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       if (error || !data.user) {
         setIsLoading(false)
-        return { ok: false, error: (error as any)?.message || (error as any)?.error_description || "Registration failed" }
+        const errMsg = (error as any)?.message || (error as any)?.error_description || "Registration failed"
+        toast({ title: "Signup failed", description: errMsg, variant: "destructive" })
+        return { ok: false, error: errMsg }
       }
 
       // Create or update profile row (requires a 'profiles' table with RLS allowing user)
@@ -136,13 +148,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser({ id: u.id, name, email: u.email || email })
         redirectToDashboard()
         setIsLoading(false)
+        toast({ title: "Welcome!", description: "Signed up and logged in successfully" })
         return { ok: true, message: "Signed up and logged in successfully" }
       }
       setIsLoading(false)
+      toast({ title: "Signup successful", description: "Please check your email to confirm." })
       return { ok: true, message: "Signup successful. Please check your email to confirm." }
     } catch (e: any) {
       setIsLoading(false)
-      return { ok: false, error: e?.message || "Registration failed" }
+      const errMsg = e?.message || "Registration failed"
+      toast({ title: "Signup failed", description: errMsg, variant: "destructive" })
+      return { ok: false, error: errMsg }
     }
   }
 
@@ -150,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.signOut()
     setUser(null)
     router.push("/")
+    toast({ title: "Logged out", description: "You have been signed out." })
   }
 
   return <AuthContext.Provider value={{ user, login, signup, logout, isLoading, redirectToDashboard }}>{children}</AuthContext.Provider>
