@@ -10,11 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { useLanguage } from "@/lib/language-context"
 import { Search, BookOpen, Scale, Calendar, MapPin, User, Download, Eye, Star, Filter, TrendingUp, Clock, Bookmark, BarChart3, SortDesc, GitCompare, Plus, Check, Activity } from "lucide-react"
-import { ApiService, type CaseDoc } from "@/lib/api-service"
+import type { CaseDoc } from "@/lib/types/case"
+import { CaseService } from "@/lib/case-service"
 import { useRouter } from "next/navigation"
 import { CaseComparison } from "@/components/case-comparison"
 import { CaseAnalytics } from "@/components/case-analytics"
-import { SearchLoading, CaseCardSkeleton } from "@/components/ui/loading"
+import { SearchLoading } from "@/components/ui/loading"
+import { CaseCard } from "@/components/case-card"
 import RecommendationService, { type Recommendation } from "@/lib/recommendation-service"
 
 interface SearchResultCase {
@@ -35,6 +37,8 @@ interface SearchResult {
   success: boolean
   ik_error?: string
   cases?: SearchResultCase[]
+  error?: string
+  message?: string
   // Add other fields that might be present in the API response
   [key: string]: any
 }
@@ -45,26 +49,91 @@ interface PrecedentCase extends SearchResultCase {
   category?: string
   keyPoints?: string[]
   parties?: { petitioner?: string; respondent?: string }
-  petitioner?: string
-  respondent?: string
+  // petitioner and respondent are now only accessible through the parties object
 }
 
 export function PrecedentFinderInterface() {
   const { t } = useLanguage()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
+  const [loadingTimer, setLoadingTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
   const [selectedFilters, setSelectedFilters] = useState<string[]>([])
-  const [searchResults, setSearchResults] = useState<PrecedentCase[]>(() => {
-    // Load search results from session storage on initial render
+  const [searchResults, setSearchResults] = useState<PrecedentCase[]>([])
+
+  useEffect(() => {
+    // Load search results from session storage after component mounts
     if (typeof window !== 'undefined') {
-      const savedResults = sessionStorage.getItem('nyay-sarthi-search-results')
-      return savedResults ? JSON.parse(savedResults) : []
+      try {
+        const savedResults = sessionStorage.getItem('nyay-sarthi-search-results')
+        if (savedResults) {
+          const parsedResults = JSON.parse(savedResults)
+          if (Array.isArray(parsedResults)) {
+            setSearchResults(parsedResults)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading search results from sessionStorage:', error)
+      }
     }
-    return []
-  })
+  }, [])
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [selectedCase, setSelectedCase] = useState<PrecedentCase | null>(null)
+  
+  interface SelectedCaseCardProps {
+    caseData: PrecedentCase;
+    t: (key: string) => string;
+  }
+  
+  const SelectedCaseCard: React.FC<SelectedCaseCardProps> = ({ caseData, t }) => (
+    <Card className="glass-card border-white/10 sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
+      <CardContent className="p-6">
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-medium text-white mb-2">{t("precedent.parties")}</h4>
+            <div className="space-y-2 text-sm">
+              <div>
+                <span className="text-gray-400">{t("precedent.petitioner")}: </span>
+                <span className="text-white">{caseData.parties?.petitioner || '—'}</span>
+              </div>
+              <div>
+                <span className="text-gray-400">{t("precedent.respondent")}: </span>
+                <span className="text-white">{caseData.parties?.respondent || '—'}</span>
+              </div>
+            </div>
+          </div>
+          
+          {caseData.judges && caseData.judges.length > 0 && (
+            <div>
+              <h4 className="font-medium text-white mb-2">{t("precedent.judges")}</h4>
+              <p className="text-gray-300 text-sm">{caseData.judges.join(', ')}</p>
+            </div>
+          )}
+          
+          {caseData.date && (
+            <div>
+              <h4 className="font-medium text-white mb-2">{t("precedent.date")}</h4>
+              <p className="text-gray-300 text-sm">{new Date(caseData.date).toLocaleDateString()}</p>
+            </div>
+          )}
+          
+          {caseData.citation && (
+            <div>
+              <h4 className="font-medium text-white mb-2">{t("precedent.citation")}</h4>
+              <p className="text-gray-300 text-sm">{caseData.citation}</p>
+            </div>
+          )}
+          
+          {caseData.summary && (
+            <div>
+              <h4 className="font-medium text-white mb-2">{t("precedent.summary")}</h4>
+              <p className="text-gray-300 text-sm whitespace-pre-line">{caseData.summary}</p>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
   const [ikDiag, setIkDiag] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'relevance' | 'date' | 'court'>('relevance')
   const [selectedCourt, setSelectedCourt] = useState<string>('all')
@@ -219,70 +288,138 @@ export function PrecedentFinderInterface() {
     sessionStorage.removeItem('nyay-sarthi-search-results')
   }
 
-  const handleSearch = async (customQuery?: string) => {
-    const query = (customQuery || searchQuery).trim()
-    if (!query) {
-      setSearchError('Please enter a search query')
-      return
-    }
-    
-    // Optimize the search query
-    const optimizedQuery = optimizeQuery(query)
-    if (!optimizedQuery || optimizedQuery.length < 3) {
-      setIkDiag('Please enter a more specific search query (at least 3 characters)')
-      return
-    }
-    
-    setSelectedCase(null)
-    setSearchError(null)
+  const handleSearch = async (customQuery?: string, isRetry: boolean = false) => {
+    const query = customQuery || searchQuery.trim()
+    if (!query) return
+
     setIsSearching(true)
-    
-    // Show initial loading message
-    setIkDiag('Searching for relevant cases...')
-    
+    setSearchError(null)
+    setIkDiag(null)
+    setShowAdvancedFilters(false)
+    setSelectedCase(null)
+
+    // Clear any existing timeout
+    if (loadingTimer) {
+      clearTimeout(loadingTimer as unknown as number);
+      setLoadingTimer(null);
+    }
+
+    // Set a loading timeout to show a message if the search takes too long
+    const loadingTimerId = setTimeout(() => {
+      if (isSearching) {
+        setSearchError('Search is taking longer than expected. Please wait...')
+      }
+    }, 3000)
+
+    setLoadingTimer(loadingTimerId as unknown as ReturnType<typeof setTimeout>)
+
     try {
-      // Optimize query by removing extra spaces and special characters
-      const optimizedQuery = query.trim().replace(/\s+/g, ' ')
-      
-      // Show loading state with a slight delay to prevent UI flicker
-      const loadingTimer = setTimeout(() => {
-        setIkDiag(prev => prev || 'Searching through legal precedents...')
-      }, 500)
+      // Optimize the query for better search results
+      const optimizedQuery = query
+        .replace(/[^\w\s]/gi, ' ') // Remove special characters
+        .replace(/\s+/g, ' ')       // Replace multiple spaces with single space
+        .trim()
 
+      // Add a small delay to show loading state and prevent UI flicker
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      // Make the actual API request to the backend
+      let response: Response;
       try {
-        // Make the API request with a 30-second timeout (handled by the API service)
-        const searchResult = await ApiService.searchCases(optimizedQuery, 5)
+        response = await fetch('http://localhost:8000/cases/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            input: optimizedQuery,
+            limit: '5'
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+      } catch (fetchError) {
+        // If the backend is not available, show a helpful error message
+        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+          throw new Error('Unable to connect to the search service. Please make sure the backend server is running on http://localhost:8000');
+        }
+        throw fetchError;
+      }
+
+      const searchResult: SearchResult = await response.json();
+      
+      if (loadingTimer) {
+        // Clear the timeout and reset the timer
+        clearTimeout(loadingTimer as unknown as number);
+        setLoadingTimer(null);
+      }
+      
+      if (!searchResult) {
+        throw new Error('No response from server. Please check your connection and try again.');
+      }
+
+      // Handle API-level errors
+      if (!searchResult.success) {
+        const errorMessage = searchResult.ik_error || searchResult.error || searchResult.message || 'Search request failed';
         
-        clearTimeout(loadingTimer)
+        // Special handling for rate limiting
+        if (errorMessage.includes('too many requests')) {
+          throw new Error('Too many requests. Please wait a moment before trying again.');
+        }
         
-        if (!searchResult) {
-          throw new Error('No response from server. Please check your connection and try again.')
+        // Handle timeout errors
+        if (errorMessage.includes('timed out') || errorMessage.includes('timeout')) {
+          throw new Error('The search is taking too long. Please try again with a more specific query.');
         }
-
-        if (!searchResult.success) {
-          // Handle specific error cases
-          if (searchResult.ik_error?.includes('too many requests')) {
-            throw new Error('Too many requests. Please wait a moment before trying again.')
-          }
-          throw new Error(searchResult.ik_error || 'Search request failed. Please try again.')
+        
+        // Handle network errors
+        if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+          throw new Error('Unable to connect to the server. Please check your internet connection.');
         }
+        
+        // Default error handling
+        throw new Error(errorMessage);
+      }
 
-        // Validate and process the response
-        if (!Array.isArray(searchResult.cases)) {
-          console.error('Invalid response format:', searchResult)
-          throw new Error('Invalid response from server. Please try again.')
-        }
+      // Validate and process the response
+      if (!searchResult.success) {
+        const errorMessage = searchResult.ik_error || searchResult.error || searchResult.message || 'Search request failed';
+        throw new Error(errorMessage);
+      }
 
-        const validCases = searchResult.cases.filter(case_ => {
-          if (!case_?.id || !case_?.title) {
-            console.warn('Skipping invalid case:', case_)
+      if (!Array.isArray(searchResult.cases)) {
+        console.error('Invalid response format:', searchResult)
+        throw new Error('Invalid response from server. Please try again.');
+      }
+
+      // Process and validate cases
+      const validCases = searchResult.cases
+        .filter((caseDoc: any) => {
+          if (!caseDoc?.id || !caseDoc?.title) {
+            console.warn('Skipping invalid case:', caseDoc)
             return false
           }
           return true
         })
-        
-        if (validCases.length === 0) {
-          setSearchResults([]) // Clear any previous results
+        .map((caseDoc: any) => ({
+          ...caseDoc,
+          // Ensure all required fields have default values
+          title: caseDoc.title || 'Untitled Case',
+          id: caseDoc.id || `case-${Math.random().toString(36).substr(2, 9)}`,
+          // Add any missing optional fields with defaults
+          court: caseDoc.court || 'Court not specified',
+          date: caseDoc.date || 'Date not available',
+          citation: caseDoc.citation || 'Citation not available',
+          summary: caseDoc.summary || 'No summary available',
+          relevanceScore: caseDoc.relevanceScore || 0
+        }))
+      
+      if (validCases.length === 0) {
+        // Only show no results message if this isn't a retry
+        if (!isRetry) {
+          setSearchError('No matching cases found')
           
           // Generate helpful suggestions based on the search query
           const suggestions = [
@@ -297,118 +434,66 @@ export function PrecedentFinderInterface() {
           setSearchError(suggestions[0])
           
           // Show additional tips
-          setIkDiag('Search tips: ' + 
-            '• Use specific legal terminology\n' +
-            '• Include relevant sections or articles\n' +
-            '• Try different combinations of keywords\n' +
-            '• Check your spelling'
-          )
-          
-          // Don't throw an error, just return early
-          return
+          setIkDiag('Search tips: ' + suggestions.slice(1).join(' • '))
         }
-        
-        const filteredAndSorted = sortResults(filterResults(validCases))
-        setSearchResults(filteredAndSorted)
-        
-        // Save to search history with results for recommendations
-        saveSearchHistory(query, filteredAndSorted)
-        
-        // Handle success/warning cases
-        if (searchResult.ik_error && searchResult.ik_error !== 'no_credentials') {
-          console.warn('Indian Kanoon warning:', searchResult.ik_error)
-          setIkDiag(`Note: ${searchResult.ik_error}. Showing available results.`)
-        } else {
-          // Show success message briefly
-          setIkDiag(`Found ${filteredAndSorted.length} relevant case${filteredAndSorted.length !== 1 ? 's' : ''}`)
-          setTimeout(() => setIkDiag(null), 3000)
-        }
-        
-      } catch (error) {
-        console.error('Search error:', error)
-        
-        // Clear any pending loading timeout
-        clearTimeout(loadingTimer)
-        
-        // Handle different types of errors with user-friendly messages
-        let errorMessage = 'An error occurred during search.'
-        
-        if (error instanceof Error) {
-          const errorStr = error.message.toLowerCase()
-          
-          if (errorStr.includes('network') || errorStr.includes('failed to fetch')) {
-            errorMessage = 'Unable to connect to the server. Please check your internet connection.'
-          } else if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
-            errorMessage = 'The server is taking too long to respond. Please try again in a moment.'
-          } else if (errorStr.includes('too many requests')) {
-            errorMessage = 'Too many requests. Please wait a moment before trying again.'
-          } else if (errorStr.includes('no response')) {
-            errorMessage = 'No response from server. Please check your connection and try again.'
-          } else {
-            errorMessage = error.message || errorMessage
-          }
-        }
-        
-        setSearchError(errorMessage)
-        setIkDiag('')
-        setSearchResults([])
-        
-        // Clear error after 10 seconds
-        setTimeout(() => {
-          setSearchError('')
-        }, 10000)
-      } finally {
-        setIsSearching(false)
+        return
       }
-    } catch (error: unknown) {
+
+      // Sort by relevance score if available, otherwise by title
+      const sortedCases = [...validCases].sort((a, b) => {
+        if (a.relevanceScore !== undefined && b.relevanceScore !== undefined) {
+          return (b.relevanceScore || 0) - (a.relevanceScore || 0)
+        }
+        return (a.title || '').localeCompare(b.title || '')
+      })
+
+      setSearchResults(sortedCases)
+      setSearchError('')
+      
+      // Save search history and results
+      saveSearchHistory(query, sortedCases)
+      
+      // Show success message with result count
+      const resultCount = sortedCases.length
+      const resultText = `Found ${resultCount} matching case${resultCount !== 1 ? 's' : ''}`
+      
+      setIkDiag(resultText)
+      
+    } catch (error) {
       console.error('Search error:', error)
       
-      // More detailed error handling with specific error messages
-      let errorMessage = 'An error occurred while searching.'
-      let errorDetails = ''
-      let clearAfter = 5000 // Default 5 seconds for error display
+      // Provide more specific error messages
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'An unknown error occurred while searching'
       
-      if (error instanceof Error) {
-        const errorMsg = error.message.toLowerCase()
-        errorDetails = error.message
+      // Don't show error if this was an aborted request (user started a new search)
+      if (error instanceof Error && error.name !== 'AbortError') {
+        setSearchError(errorMessage)
+        setSearchResults([])
         
-        // Handle specific error cases with more specific messages
-        if (errorMsg.includes('rate limit') || errorMsg.includes('too many requests')) {
-          errorMessage = 'Search limit reached'
-          errorDetails = 'Please wait a moment before trying again.'
-          clearAfter = 10000 // Show rate limit errors longer
-        } 
-        else if (errorMsg.includes('network') || errorMsg.includes('offline') || errorMsg.includes('timeout')) {
-          errorMessage = 'Connection issue'
-          errorDetails = 'Please check your internet connection and try again.'
-        } 
-        else if (errorMsg.includes('no result') || errorMsg.includes('not found')) {
-          errorMessage = 'No results found'
-          errorDetails = 'Try different search terms or broaden your search.'
+        // Show retry suggestion for certain errors
+        if (errorMessage.includes('timeout') || 
+            errorMessage.includes('network') ||
+            errorMessage.includes('connection')) {
+          setIkDiag('You can try searching again or check your internet connection.')
+        } else if (errorMessage.includes('no result') || errorMessage.includes('not found')) {
+          setIkDiag('No results found. Try different search terms or broaden your search.')
+        } else if (errorMessage.includes('time out') || errorMessage.includes('timed out')) {
+          setIkDiag('Request timed out. The server took too long to respond. Please try again.')
+        } else {
+          setIkDiag(null)
         }
-        else if (errorMsg.includes('time out') || errorMsg.includes('timed out')) {
-          errorMessage = 'Request timed out'
-          errorDetails = 'The server took too long to respond. Please try again.'
-        }
+        
+        console.warn(`Search failed: ${errorMessage}`)
       }
       
-      console.warn(`Search failed: ${errorMessage} - ${errorDetails}`)
-      
-      // Set error states
-      setSearchError(errorMessage)
-      setIkDiag(errorDetails || errorMessage)
-      setSearchResults([])
-      
-      // Clear the error after specified duration
-      const timeoutId = setTimeout(() => {
-        setSearchError(null)
-        setIkDiag(null)
-      }, clearAfter)
-      
-      // Cleanup timeout on component unmount
-      return () => clearTimeout(timeoutId)
     } finally {
-      setIsSearching(false)
+      if (loadingTimer) {
+        clearTimeout(loadingTimer as unknown as number);
+        setLoadingTimer(null);
+      }
+      setIsSearching(false);
     }
   }
 
@@ -431,7 +516,6 @@ export function PrecedentFinderInterface() {
         <div className="absolute top-40 right-20 w-24 h-24 bg-white/3 rounded-full blur-lg animate-float-delayed"></div>
         <div className="absolute bottom-32 left-1/4 w-40 h-40 bg-white/4 rounded-full blur-2xl animate-float"></div>
       </div>
-
       <div className="relative z-10 max-w-7xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-4 mb-4">
@@ -655,14 +739,14 @@ export function PrecedentFinderInterface() {
             <SearchLoading searchQuery={searchQuery} />
             <div className="grid lg:grid-cols-2 gap-4">
               {[...Array(6)].map((_, i) => (
-                <CaseCardSkeleton key={i} />
+                <div key={i} className="h-64 bg-white/5 rounded-lg animate-pulse" />
               ))}
             </div>
           </div>
         )}
         
         {searchResults.length > 0 && !isSearching && (
-          <>
+          <div>
             {showAnalytics && (
               <CaseAnalytics 
                 cases={searchResults} 
@@ -674,46 +758,49 @@ export function PrecedentFinderInterface() {
             <div className={`grid ${showAnalytics ? 'grid-cols-1' : 'lg:grid-cols-3'} gap-6`}>
               {/* Results List */}
               <div className={`${showAnalytics ? 'col-span-1' : 'lg:col-span-2'} space-y-4`}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5" />
-                  {t("precedent.results")} ({searchResults.length})
-                </h2>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`border-white/20 transition-colors ${
-                      showAnalytics 
-                        ? 'bg-green-500/20 text-green-400 border-green-500/30' 
-                        : 'text-gray-300 hover:bg-white/10'
-                    }`}
-                    onClick={() => setShowAnalytics(!showAnalytics)}
-                  >
-                    <Activity className="w-4 h-4 mr-2" />
-                    Analytics
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-white/20 text-gray-300 hover:bg-white/10"
-                    onClick={() => setSortBy(sortBy === 'relevance' ? 'date' : 'relevance')}
-                  >
-                    <SortDesc className="w-4 h-4 mr-2" />
-                    Sort by {sortBy === 'relevance' ? 'Date' : 'Relevance'}
-                  </Button>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5" />
+                    {t("precedent.results")} ({searchResults.length})
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`border-white/20 transition-colors ${
+                        showAnalytics 
+                          ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                          : 'text-gray-300 hover:bg-white/10'
+                      }`}
+                      onClick={() => setShowAnalytics(!showAnalytics)}
+                    >
+                      <Activity className="w-4 h-4 mr-2" />
+                      Analytics
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-white/20 text-gray-300 hover:bg-white/10"
+                      onClick={() => setSortBy(sortBy === 'relevance' ? 'date' : 'relevance')}
+                    >
+                      <SortDesc className="w-4 h-4 mr-2" />
+                      Sort by {sortBy === 'relevance' ? 'Date' : 'Relevance'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
               
               {/* Comparison Toolbar */}
               {selectedForComparison.size > 0 && (
                 <Card className="glass-card border-blue-500/30 bg-blue-500/5 p-4 mb-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <GitCompare className="w-5 h-5 text-blue-400" />
-                      <span className="text-white font-medium">
-                        {selectedForComparison.size} case{selectedForComparison.size !== 1 ? 's' : ''} selected for comparison
-                      </span>
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20 text-blue-400">
+                        <GitCompare className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">Comparing {selectedForComparison.size} cases</p>
+                        <p className="text-xs text-blue-300">Select up to 3 cases to compare</p>
+                      </div>
                       {selectedForComparison.size >= 3 && (
                         <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
                           Max reached
@@ -742,195 +829,62 @@ export function PrecedentFinderInterface() {
                   </div>
                 </Card>
               )}
-              {searchResults.map((case_) => (
-                <Card
-                  key={case_.id}
-                  className="glass-card border-white/10 hover:border-white/20 transition-all duration-300 cursor-pointer group"
-                  onClick={() => {
-                    // Record case view for recommendations
-                    try {
-                      RecommendationService.recordCaseView(case_)
-                    } catch {}
-                    
-                    const q = new URLSearchParams()
-                    if (searchQuery) q.set('desc', searchQuery)
-                    router.push(`/precedents/${case_.id}?${q.toString()}`)
-                  }}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-white group-hover:text-gray-200 transition-colors">
-                          {case_.title}
-                        </h3>
-                        {case_.citation && (
-                          <p className="text-gray-400 text-sm mt-1">{case_.citation}</p>
-                        )}
-                      </div>
-                      {typeof case_.relevanceScore === 'number' && (
-                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                          {case_.relevanceScore}% {t("precedent.relevant")}
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-                      <div className="flex items-center gap-2 text-gray-300">
-                        <MapPin className="w-4 h-4" />
-                        {case_.court || '—'}
-                      </div>
-                      <div className="flex items-center gap-2 text-gray-300">
-                        <Calendar className="w-4 h-4" />
-                        {case_.date ? new Date(case_.date).toLocaleDateString() : '—'}
-                      </div>
-                    </div>
-
-                    {case_.summary && (
-                      <p className="text-gray-400 text-sm mb-4 line-clamp-2">{case_.summary}</p>
-                    )}
-
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="border-white/20 text-gray-300">
-                          {case_.category || 'Case Law'}
-                        </Badge>
-                        {bookmarkedCases.has(case_.id) && (
-                          <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
-                            <Bookmark className="w-3 h-3 mr-1" />Saved
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        {case_.url && (
-                          <Button asChild size="sm" variant="ghost" className="text-gray-400 hover:text-white">
-                            <a href={case_.url} target="_blank" rel="noreferrer">
-                              <Eye className="w-4 h-4" />
-                            </a>
-                          </Button>
-                        )}
-                        <Button size="sm" variant="ghost" className="text-gray-400 hover:text-white">
-                          <Download className="w-4 h-4" />
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          className={`transition-colors ${
-                            selectedForComparison.has(case_.id)
-                              ? 'text-blue-400 hover:text-blue-300'
-                              : selectedForComparison.size >= 3
-                                ? 'text-gray-600 cursor-not-allowed'
-                                : 'text-gray-400 hover:text-white'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleComparisonSelection(case_.id)
-                          }}
-                          disabled={selectedForComparison.size >= 3 && !selectedForComparison.has(case_.id)}
-                          title={selectedForComparison.has(case_.id) ? 'Remove from comparison' : 'Add to comparison'}
-                        >
-                          {selectedForComparison.has(case_.id) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          className={`transition-colors ${
-                            bookmarkedCases.has(case_.id) 
-                              ? 'text-yellow-400 hover:text-yellow-300' 
-                              : 'text-gray-400 hover:text-white'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleBookmark(case_.id)
-                          }}
-                        >
-                          {bookmarkedCases.has(case_.id) ? <Bookmark className="w-4 h-4 fill-current" /> : <Bookmark className="w-4 h-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
+              <div className="space-y-4">
+                {searchResults.map((case_) => (
+                  <CaseCard
+                    key={case_.id}
+                    caseData={{
+                      ...case_,
+                      category: case_.category || 'Case Law',
+                      summary: case_.summary,
+                      relevanceScore: case_.relevanceScore,
+                    }}
+                    searchQuery={searchQuery}
+                    isSelected={selectedForComparison.has(case_.id)}
+                    onToggleSelect={(id) => {
+                      setSelectedForComparison(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(id)) {
+                          newSet.delete(id);
+                        } else if (newSet.size < 3) {
+                          newSet.add(id);
+                        }
+                        return newSet;
+                      });
+                    }}
+                    isSelectionDisabled={selectedForComparison.size >= 3 && !selectedForComparison.has(case_.id)}
+                    isBookmarked={bookmarkedCases.has(case_.id)}
+                    onBookmarkToggle={(id) => {
+                      setBookmarkedCases(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(id)) {
+                          newSet.delete(id);
+                        } else {
+                          newSet.add(id);
+                        }
+                        return newSet;
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+              </div>
               
-              {/* Case Details Sidebar - only show when not in analytics mode */}
-              {!showAnalytics && (
-                <div className="lg:col-span-1">
-                  {selectedCase ? (
-                    <Card className="glass-card border-white/10 sticky top-6 max-h-[calc(100vh-3rem)] overflow-hidden">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg">{t("precedent.caseDetails")}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4 overflow-y-auto pr-2 max-h-[calc(100vh-3rem-4rem)]">
-                        <div>
-                          <h4 className="font-medium text-white mb-2">{selectedCase.title}</h4>
-                          {selectedCase.summary && (
-                            <p className="text-gray-400 text-sm">{selectedCase.summary}</p>
-                          )}
-                        </div>
-
-                        <div>
-                          <h4 className="font-medium text-white mb-2">{t("precedent.parties")}</h4>
-                          <div className="space-y-2 text-sm">
-                            <div>
-                              <span className="text-gray-400">{t("precedent.petitioner")}: </span>
-                              <span className="text-white">{selectedCase.parties?.petitioner || '—'}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400">{t("precedent.respondent")}: </span>
-                              <span className="text-white">{selectedCase.parties?.respondent || '—'}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <h4 className="font-medium text-white mb-2">{t("precedent.judges")}</h4>
-                          <div className="space-y-1">
-                            {(selectedCase as any).judges?.map((judge: string, index: number) => (
-                              <div key={index} className="flex items-center gap-2 text-sm text-gray-300">
-                                <User className="w-3 h-3" />
-                                {judge}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div>
-                          <h4 className="font-medium text-white mb-2">{t("precedent.keyPoints")}</h4>
-                          <ul className="space-y-1">
-                            {(selectedCase.keyPoints ?? []).map((point, index) => (
-                              <li key={index} className="text-sm text-gray-400 flex items-start gap-2">
-                                <div className="w-1 h-1 bg-white rounded-full mt-2 flex-shrink-0"></div>
-                                {point}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        {selectedCase.url && (
-                          <div className="pt-4 border-t border-white/10">
-                            <Button asChild className="w-full bg-gradient-to-r from-white/20 to-white/10 hover:from-white/30 hover:to-white/20 text-white">
-                              <a href={selectedCase.url} target="_blank" rel="noreferrer">
-                                <Eye className="w-4 h-4 mr-2" />
-                                View on Indian Kanoon
-                              </a>
-                            </Button>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <Card className="glass-card border-white/10 sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
-                      <CardContent className="p-6 text-center">
-                        <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                        <p className="text-gray-400">{t("precedent.selectCase")}</p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )}
+              {/* Selected Case Panel */}
+              <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+                {selectedCase ? (
+                  <SelectedCaseCard caseData={selectedCase} t={t} />
+                ) : (
+                  <Card className="glass-card border-white/10 h-full overflow-y-auto">
+                    <CardContent className="p-6 text-center flex flex-col items-center justify-center h-full">
+                      <BookOpen className="w-12 h-12 text-gray-400 mb-4" />
+                      <p className="text-gray-400">{t("precedent.selectCase")}</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {searchResults.length === 0 && !isSearching && (
@@ -1130,13 +1084,13 @@ export function PrecedentFinderInterface() {
           <CaseComparison
             caseIds={[...selectedForComparison]}
             onClose={() => {
-              setShowComparison(false)
-              setSelectedForComparison(new Set())
+              setShowComparison(false);
+              setSelectedForComparison(new Set());
             }}
             userDescription={searchQuery}
           />
         )}
       </div>
-    </div>
-  )
+      </div>
+  );
 }

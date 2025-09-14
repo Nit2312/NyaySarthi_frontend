@@ -6,13 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { X, GitCompare, Calendar, MapPin, ExternalLink, Download, FileText } from "lucide-react"
-import { ApiService, type CaseDoc } from "@/lib/api-service"
+import ApiService from "@/lib/api-service"
+import type { CaseDoc } from "@/lib/types/case"
 
 interface ExtendedCaseDoc extends CaseDoc {
   full_text?: string
   full_text_html?: string
   similarity_score?: number
   similar_points?: string[]
+  analysis_status?: 'complete' | 'partial'
 }
 
 interface CaseComparisonProps {
@@ -54,26 +56,60 @@ export function CaseComparison({ caseIds, onClose, userDescription }: CaseCompar
       setError(null)
       
       try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+        
         const casePromises = caseIds.map(id => 
-          ApiService.getCaseDetails(id, userDescription)
+          ApiService.getCaseDetails(id, userDescription, controller.signal, 90000) // 90s per request
         )
         
         const results = await Promise.all(casePromises)
-        const casesData = results.map(result => {
+        clearTimeout(timeoutId)
+        
+        const casesData = results.map((result, index) => {
+          if (!result || !result.case) {
+            throw new Error(`Failed to load case ${caseIds[index]}`)
+          }
+          
           const merged: ExtendedCaseDoc = {
             ...result.case,
-            similarity_score: result.similarity_score,
-            similar_points: result.similar_points,
+            similarity_score: result.similarity_score || 0,
+            similar_points: result.similar_points || [],
+            analysis_status: (result.analysis_status === 'complete' ? 'complete' : 'partial') as 'complete' | 'partial'
           }
+          
           // Ensure we have a readable summary
           const sum = computeSummary(merged)
           if (sum) merged.summary = sum
+          
           return merged
         })
         
-        setCases(casesData)
+        // Filter out any cases that failed to load
+        const validCases = casesData.filter(c => c && c.id)
+        if (validCases.length === 0) {
+          throw new Error('No valid cases were loaded for comparison')
+        }
+        
+        setCases(validCases)
       } catch (err: any) {
-        setError(err.message || "Failed to load cases for comparison")
+        console.error('Error in case comparison:', err)
+        
+        let errorMessage = 'Failed to load cases for comparison'
+        if (err.name === 'AbortError' || err.message?.includes('timeout')) {
+          errorMessage = 'The request took too long to complete. Some cases may still load, but the comparison is incomplete.'
+        } else if (err.message?.includes('Failed to fetch') || err.message?.includes('network')) {
+          errorMessage = 'Network error. Please check your internet connection and try again.'
+        } else if (err.message) {
+          errorMessage = err.message
+        }
+        
+        setError(errorMessage)
+        
+        // If we have partial results, still show them
+        if (cases.length > 0) {
+          console.log('Showing partial results despite error', cases)
+        }
       } finally {
         setLoading(false)
       }

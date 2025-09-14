@@ -1,0 +1,345 @@
+import { API_CONFIG } from './config';
+
+const API_BASE_URL = API_CONFIG.BASE_URL;
+
+// In-memory cache for case details
+interface CachedCaseDetails {
+  data: any;
+  timestamp: number;
+}
+
+const caseDetailsCache = new Map<string, CachedCaseDetails>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes TTL
+
+export interface CaseDoc {
+  id: string;
+  title: string;
+  court?: string;
+  date?: string;
+  citation?: string;
+  url?: string;
+  summary?: string;
+  full_text?: string;
+  full_text_html?: string;
+  judges?: string | string[];
+  relevanceScore?: number;
+  category?: string;
+}
+
+export interface ChatResponse {
+  response: string;
+  conversation_id?: string;
+  source?: 'constitution_rag' | 'indian_kanoon';
+  cases?: CaseDoc[];
+  ik_error?: string | null;
+  query_used?: string;
+}
+
+export interface ChatRequest {
+  input: string;
+  conversation_id?: string;
+}
+
+export interface CaseDetailsResponse {
+  case: CaseDoc;
+  similarity_score: number;
+  similar_points: string[];
+  query_terms?: string[];
+  success: boolean;
+  error?: string;
+  analysis_status?: 'complete' | 'partial';
+  cache_status?: 'hit' | 'miss';
+  _cachedAt?: number;
+}
+
+export class ApiService {
+  private static readonly DEFAULT_TIMEOUT = 30000; // 30 seconds
+  private static readonly MAX_RETRIES = 2;
+  
+  private static getCacheKey(docId: string, description?: string): string {
+    return `${docId}:${description || ''}`;
+  }
+
+  private static async makeRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    
+    const defaultOptions: RequestInit = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    };
+
+    try {
+      const response = await fetch(url, defaultOptions);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`API request failed for ${url}:`, error);
+      throw error;
+    }
+  }
+
+  static async sendChatMessage(message: string, conversationId?: string): Promise<ChatResponse> {
+    return this.makeRequest<ChatResponse>('/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        input: message,
+        conversation_id: conversationId,
+      }),
+    });
+  }
+
+  static async searchCases(
+    query: string,
+    limit: number = 5,
+    timeoutMs: number = 45000,
+    retryCount: number = 0,
+    maxRetries: number = 2
+  ): Promise<{
+    response: string;
+    cases: CaseDoc[];
+    source: 'indian_kanoon';
+    ik_error?: string | null;
+    query_used?: string;
+    success: boolean;
+  }> {
+    const requestId = Math.random().toString(36).substring(2, 9);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId,
+        },
+        body: JSON.stringify({ query, limit }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (retryCount < maxRetries) {
+        const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 8000);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        return this.searchCases(query, limit, timeoutMs, retryCount + 1, maxRetries);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  static async checkHealth(): Promise<{ message: string }> {
+    return this.makeRequest<{ message: string }>('/health');
+  }
+
+  static prefetchCaseDetails(docId: string, description?: string): void {
+    if (!docId) return;
+    
+    const cacheKey = this.getCacheKey(docId, description);
+    const cached = caseDetailsCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return; // Already in cache and not expired
+    }
+    
+    // Start the request but don't await it
+    this.getCaseDetails(docId, description, undefined, 15000, 0, 1, true)
+      .catch(error => {
+        console.warn(`Failed to prefetch case ${docId}:`, error);
+      });
+  }
+
+  static async getCaseDetails(
+    docId: string,
+    description?: string,
+    signal?: AbortSignal,
+    timeoutMs: number = this.DEFAULT_TIMEOUT,
+    retryCount: number = 0,
+    maxRetries: number = this.MAX_RETRIES,
+    useCache: boolean = true
+  ): Promise<CaseDetailsResponse> {
+    if (!docId) {
+      throw new Error('Document ID is required');
+    }
+    
+    const cacheKey = this.getCacheKey(docId, description);
+    
+    // Check cache first if enabled
+    if (useCache) {
+      const cached = caseDetailsCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[Cache] Returning cached case details for ${docId}`);
+        return {
+          ...cached.data,
+          cache_status: 'hit' as const,
+          _cachedAt: cached.timestamp,
+        };
+      }
+    }
+    
+    const endpoint = '/case-details';
+    const url = `${API_BASE_URL}${endpoint}`;
+    const requestId = Math.random().toString(36).substring(2, 9);
+    const controller = new AbortController();
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    try {
+      const formData = new URLSearchParams();
+      formData.append('doc_id', docId.trim());
+      formData.append('timeout', Math.floor(timeoutMs / 1000).toString());
+      
+      const trimmedDesc = description?.trim();
+      if (trimmedDesc) {
+        formData.append('description', trimmedDesc);
+      }
+      
+      formData.append('minimal', 'true');
+      
+      console.log(`[${requestId}] Fetching case details (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        console.warn(`[${requestId}] Request timeout reached (${timeoutMs}ms), aborting...`);
+        controller.abort();
+      }, timeoutMs);
+      
+      const startTime = performance.now();
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'X-Request-ID': requestId,
+          'X-Request-Type': 'case-details',
+          'X-Cache-Status': useCache ? 'miss' : 'bypass',
+        },
+        body: formData.toString(),
+        signal: signal || controller.signal,
+        credentials: 'include',
+        cache: 'force-cache',
+      });
+      
+      const responseTime = Math.round(performance.now() - startTime);
+      console.log(`[${requestId}] Response received in ${responseTime}ms`, {
+        status: response.status,
+        cache: response.headers.get('x-cache'),
+        'content-length': response.headers.get('content-length'),
+      });
+      
+      if (!response.ok) {
+        let errorData: { message: string; detail?: string; code?: string } = { message: 'Unknown error occurred' };
+        
+        try {
+          const errorText = await response.text();
+          errorData = errorText ? JSON.parse(errorText) : { message: `HTTP ${response.status}` };
+        } catch (e) {
+          console.warn(`[${requestId}] Failed to parse error response:`, e);
+        }
+        
+        const error = new Error(errorData.detail || errorData.message || `HTTP ${response.status}: Failed to fetch case details`);
+        (error as any).status = response.status;
+        
+        // If it's a server error and we have retries left, retry with exponential backoff
+        if (response.status >= 500 && retryCount < maxRetries) {
+          const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 3000);
+          console.log(`[${requestId}] Retrying after ${backoffTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
+          return this.getCaseDetails(
+            docId,
+            description,
+            signal,
+            timeoutMs,
+            retryCount + 1,
+            maxRetries,
+            useCache
+          );
+        }
+        
+        throw error;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        const error = new Error(data.error || 'Failed to process case details');
+        (error as any).status = 500;
+        throw error;
+      }
+      
+      // Add analysis status if not present
+      if (!data.analysis_status) {
+        data.analysis_status = data.similar_points?.length ? 'complete' : 'partial';
+      }
+      
+      // Add cache timestamp
+      data._cachedAt = Date.now();
+      
+      // Cache the response if caching is enabled
+      if (useCache) {
+        caseDetailsCache.set(cacheKey, {
+          data: { ...data },
+          timestamp: Date.now(),
+        });
+      }
+      
+      return {
+        ...data,
+        cache_status: 'miss' as const,
+        _cachedAt: Date.now(),
+      };
+      
+    } catch (error) {
+      console.warn(`[${requestId}] Request failed:`, error);
+      
+      // Handle network errors and timeouts
+      if (retryCount < maxRetries) {
+        const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 3000);
+        console.log(`[${requestId}] Retrying after ${backoffTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        return this.getCaseDetails(
+          docId,
+          description,
+          signal,
+          timeoutMs,
+          retryCount + 1,
+          maxRetries,
+          useCache
+        );
+      }
+      
+      // Re-throw with more context
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out. Please check your connection and try again.');
+        }
+        throw error;
+      }
+      
+      throw new Error('An unknown error occurred while fetching case details');
+      
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+}
+
+export default ApiService;

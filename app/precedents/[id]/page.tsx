@@ -2,18 +2,42 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
-import { ApiService, type CaseDoc } from "@/lib/api-service"
+import ApiService from "@/lib/api-service"
+import type { CaseDoc } from "@/lib/types/case"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, ExternalLink, Scale, FileText, Gavel, RotateCw, AlertCircle } from "lucide-react"
+import { ArrowLeft, ExternalLink, Scale, FileText, Gavel, AlertCircle } from "lucide-react"
 import Link from "next/link"
-import { Breadcrumbs, type BreadcrumbItem } from "@/components/breadcrumbs"
-import { Navigation } from "@/components/navigation"
-import { DashboardLayout } from "@/components/dashboard-layout"
 import { useAuth } from "@/lib/auth-context"
 import { Skeleton } from "@/components/ui/skeleton"
+
+// Extend CaseDoc type to include additional properties
+interface ExtendedCaseDoc extends Omit<CaseDoc, 'title'> {
+  full_text?: string;
+  full_text_html?: string;
+  judges?: string | string[];
+  court?: string;
+  date?: string;
+  citation?: string;
+  url?: string;
+  summary?: string;
+  title: string; // Make title required to match parent interface
+}
+
+interface CaseDetailsResponse {
+  case: ExtendedCaseDoc;
+  full_text?: string;
+  full_text_html?: string;
+  similarity_score: number;
+  similar_points: string[];
+  query_terms?: string[];
+  analysis_status?: 'complete' | 'partial';
+  cache_status?: 'hit' | 'miss';
+  request_id?: string;
+  timestamp?: string;
+}
 
 // Renders plain text case documents in a more structured, readable format
 function StructuredPlainDocument({
@@ -22,10 +46,10 @@ function StructuredPlainDocument({
   citation,
   className,
 }: {
-  text: string
-  caseTitle?: string
-  citation?: string
-  className?: string
+  text: string;
+  caseTitle?: string;
+  citation?: string;
+  className?: string;
 }) {
   // Drop obvious boilerplate lines that come from portals
   const cleaned = (text || "")
@@ -134,13 +158,6 @@ function StructuredPlainDocument({
   )
 }
 
-interface CaseDetailsResponse {
-  case: CaseDoc & { full_text?: string; full_text_html?: string }
-  similarity_score: number
-  similar_points: string[]
-  query_terms?: string[]
-}
-
 // Skeleton component for loading state
 function LoadingSkeleton() {
   return (
@@ -193,143 +210,161 @@ function ErrorMessage({
 }
 
 export default function CaseDetailsPage() {
-  const { user, isLoading } = useAuth()
-  const router = useRouter()
-  const params = useParams<{ id: string }>()
-  const id = params?.id
+  const { id } = useParams<{ id: string }>()
   const searchParams = useSearchParams()
-  const description = searchParams.get("desc") || undefined
-
+  const router = useRouter()
+  const { user } = useAuth()
   const [data, setData] = useState<CaseDetailsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [readerSize, setReaderSize] = useState<"sm" | "md" | "lg">("md")
   const [retryCount, setRetryCount] = useState(0)
+  const [readerSize, setReaderSize] = useState<'sm' | 'md' | 'lg'>('md')
   const [progress, setProgress] = useState(0)
   const [isRetrying, setIsRetrying] = useState(false)
-
-  const fetchCaseDetails = useCallback(async () => {
+  
+  // Memoized values
+  const description = searchParams?.get('description') || undefined;
+  const title = useMemo(() => data?.case?.title || "Case Detail", [data]);
+  
+  // Fetch case details with progress tracking and retry logic
+  const fetchCaseDetails = useCallback(async (isRetry = false) => {
     if (!id) {
       console.error('No case ID provided');
       setError('No case ID provided');
+      setLoading(false);
       return;
     }
     
+    // Don't reset loading state on retry to prevent UI flicker
+    if (!isRetry) {
+      setLoading(true);
+      setProgress(0);
+    }
+    
+    setError(null);
+    
     const controller = new AbortController();
-    let timeoutId: NodeJS.Timeout | null = null;
-    let progressInterval: NodeJS.Timeout | null = null;
-    let startTime = Date.now();
-    const MAX_RETRIES = 2;
-    const INITIAL_TIMEOUT = 45000; // 45 seconds initial timeout
+    
+    // Smooth progress animation up to 90% with variable speed
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        // Slow down as we approach 90%
+        const remaining = 90 - prev;
+        const baseIncrement = remaining > 50 ? 5 : 2;
+        const increment = Math.min(
+          baseIncrement + Math.random() * 5, // 5-10% at start, 2-7% near end
+          remaining
+        );
+        return prev + increment;
+      });
+    }, 800); // Slightly slower interval for smoother progress
     
     try {
-      setLoading(true);
-      setError(null);
-      setProgress(0);
-      
-      // Start progress indicator
-      progressInterval = setInterval(() => {
-        setProgress(prev => (prev < 90 ? prev + (100 - prev) * 0.1 : prev));
-      }, 1000);
-      
-      // Set a timeout for the fetch operation
-      timeoutId = setTimeout(() => {
-        if (!controller.signal.aborted) {
-          controller.abort();
-        }
-      }, 180000); // 3 minute timeout for case details
-      
-      console.log('Fetching case details for ID:', id);
-      
-      // Make the API call
-      const response = await ApiService.getCaseDetails(
-        id, 
-        description,
+      // Use a slightly shorter timeout than the backend (45s vs 60s)
+      const resp = await ApiService.getCaseDetails(
+        String(id), 
+        description || undefined, 
         controller.signal,
-        180000 // 3 minute timeout
+        60000 // 60s timeout
       );
       
-      // Complete the progress
+      // Quickly complete the progress bar when done
       setProgress(100);
       
-      // If we get here, the response is valid
-      setData(response);
+      // Small delay for smooth UI transition
+      await new Promise(resolve => setTimeout(resolve, 200));
       
-    } catch (e: any) {
-      console.error('Error fetching case details:', e);
-      
-      // Default error message
-      let errorMessage = 'An unexpected error occurred while loading the case details.';
-      let shouldRetry = false;
-      
-      // Handle specific error cases
-      if (e.message?.includes('no_results') || e.message?.includes('No relevant cases found')) {
-        errorMessage = 'No matching legal precedents were found for your query. Try refining your search with different keywords or broader terms.';
-      } else if (e.name === 'AbortError' || e.message?.includes('timeout') || e.message?.includes('timed out')) {
-        errorMessage = 'The case details are taking longer than expected to load. The system is still processing your request.';
-        shouldRetry = true;
-      } else if (e.message?.includes('Failed to fetch') || e.message?.includes('network') || e.message?.includes('NetworkError')) {
-        errorMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
-        shouldRetry = true;
-      } else if (e.message?.includes('404') || e.message?.includes('not found')) {
-        errorMessage = 'The requested case could not be found. It may have been removed or is not available.';
-      } else if (e.message?.includes('50') || e.message?.includes('server')) {
-        errorMessage = 'The server is currently experiencing high traffic. Please try again in a few moments.';
-        shouldRetry = true;
-      } else if (e.message) {
-        errorMessage = e.message;
-      }
-      
-      console.error('Error details:', { 
-        message: e.message, 
-        name: e.name, 
-        stack: e.stack,
-        error: e
+      setData({
+        case: {
+          ...(resp.case as any),
+          title: (resp.case.title || 'Case Document') as string,
+        },
+        full_text: (resp as any).full_text,
+        full_text_html: (resp as any).full_text_html,
+        similarity_score: resp.similarity_score || 0,
+        similar_points: Array.isArray(resp.similar_points) ? resp.similar_points : [],
+        query_terms: resp.query_terms,
+        analysis_status: resp.analysis_status as any,
+        cache_status: resp.cache_status as any,
       });
       
-      setError(errorMessage);
+      setError(null);
       
-      // Auto-retry for certain errors if we haven't exceeded max retries
-      if (shouldRetry && retryCount < 2) {
-        const retryDelay = Math.min(3000 * (retryCount + 1), 10000); // 3s, 6s, 10s max
-        console.log(`Retrying in ${retryDelay}ms...`);
-        setIsRetrying(true);
-        
-        try {
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-          await fetchCaseDetails();
-        } finally {
-          setIsRetrying(false);
+    } catch (err: any) {
+      console.error('Error fetching case details:', err);
+      
+      // Only update error state if this isn't a retry that was aborted by a new request
+      if (!controller.signal.aborted) {
+        // Check if this is a timeout error
+        if (err?.name === 'AbortError' || err?.message?.includes('timeout') || err?.message?.includes('timed out')) {
+          setError('The request took too long to complete. Please try again.');
+        } else {
+          setError(err?.message || 'Failed to fetch case details. Please try again.');
         }
+        
+        setData(null);
       }
+      
+      // Rethrow to be caught by the retry mechanism if needed
+      throw err;
+      
     } finally {
-      clearTimeout(timeoutId!)
-      clearInterval(progressInterval!)
-      setLoading(false)
+      clearInterval(progressInterval);
+      
+      if (!isRetry) {
+        setLoading(false);
+      }
+      
+      setIsRetrying(false);
     }
-  }, [id, description])
+  }, [id, description]);
   
-  // Initial fetch 
-  const handleRetry = () => {
-    setRetryCount(0)
-    setError(null)
-    fetchCaseDetails()
-  }
-  
-  // Setup effect for initial fetch and cleanup
-  useEffect(() => {
-    fetchCaseDetails()
+  // Handle retry logic with exponential backoff
+  const handleRetry = useCallback(async () => {
+    if (isRetrying) return;
     
-    // Cleanup function to abort any pending requests
-    return () => {
-      // The AbortController in fetchCaseDetails will handle the cleanup
+    const newRetryCount = retryCount + 1;
+    const maxRetries = 3;
+    
+    if (newRetryCount > maxRetries) {
+      setError('Maximum retry attempts reached. Please try again later.');
+      return;
     }
-  }, [fetchCaseDetails])
+    
+    setRetryCount(newRetryCount);
+    setError(null);
+    setIsRetrying(true);
+    
+    // Calculate backoff time (1s, 2s, 4s, etc. with max of 8s)
+    const backoffTime = Math.min(1000 * Math.pow(2, newRetryCount - 1), 8000);
+    
+    try {
+      // Show a brief loading state before retrying
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Retry with the same parameters
+      await fetchCaseDetails(true);
+    } catch (err) {
+      // Error is already handled in fetchCaseDetails
+      console.error('Retry failed:', err);
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [isRetrying, retryCount, fetchCaseDetails]);
   
-  const title = useMemo(() => data?.case?.title || "Case Detail", [data])
+  // Initial fetch on component mount
+  useEffect(() => {
+    fetchCaseDetails();
+    return () => {};
+  }, [fetchCaseDetails]);
+
+  
+ 
+  
+  
  
   // Generate summary from case data
-  const computedSummary = useMemo((): string => {
+  const computedSummary = useMemo((): string | null => {
     if (!data) return 'Loading case details...';
     
     // First check if we have a summary from the server
@@ -375,188 +410,188 @@ export default function CaseDetailsPage() {
     return 'No summary available. Please see the full document for details.';
   }, [data]);
   
-  const breadcrumbItems: BreadcrumbItem[] = [
-    { label: "Precedents", href: "/precedents", icon: <Gavel className="w-4 h-4" /> },
-    { label: title.length > 50 ? title.substring(0, 50) + "..." : title, icon: <FileText className="w-4 h-4" /> }
-  ]
+  // (Removed old MainContent component; using single main render below)
 
-  // Main content component
-  const MainContent = () => {
-    if (isLoading) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4 sm:p-6">
-          <div className="max-w-6xl mx-auto">
-            <LoadingSkeleton />
-          </div>
-        </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4 sm:p-6">
-          <div className="max-w-6xl mx-auto">
-            <ErrorMessage 
-              error={error}
-              onRetry={handleRetry}
-              retryDisabled={isRetrying || retryCount >= 2}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    return (
+  // Main render
+  return (
     <div className={`min-h-screen bg-gradient-to-br from-black via-gray-900 to-black ${user ? "pt-6" : "pt-20"} p-4 sm:p-6`}>
       <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => router.back()}
-            className="text-gray-300 hover:bg-white/10 hover:text-white"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Results
-          </Button>
-          
-          <div className="inline-flex items-center gap-2 text-gray-300 bg-white/5 px-3 py-1.5 rounded-md">
-            <Scale className="w-4 h-4" />
-            <span className="text-sm">Nyay Sarthi</span>
-          </div>
-        </div>
-
-        <Card className="glass-card border-white/10 overflow-hidden">
-          <CardHeader className="border-b border-white/10">
-            <CardTitle className="text-white text-2xl font-semibold">
-              {loading ? <Skeleton className="h-8 w-3/4" /> : title}
-            </CardTitle>
-            {data?.case?.citation && (
-              <p className="text-gray-400 text-sm mt-1">{data.case.citation}</p>
-            )}
-          </CardHeader>
-          <CardContent className="p-0">
-            {loading && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium">Loading case details...</h3>
-                  <span className="text-sm text-muted-foreground">
-                    {isRetrying ? `Retrying (${retryCount + 1}/3)...` : 'This may take a moment'}
-                  </span>
-                </div>
-                <Progress value={progress} className="h-2" />
-                <div className="text-sm text-muted-foreground">
-                  {progress < 30 && 'Fetching case information...'}
-                  {progress >= 30 && progress < 70 && 'Analyzing case details...'}
-                  {progress >= 70 && progress < 100 && 'Finalizing...'}
-                  {progress === 100 && 'Almost there...'}
-                </div>
-                <LoadingSkeleton />
+        {loading ? (
+          <div className="space-y-4 p-6 bg-gray-900/50 rounded-lg border border-gray-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="h-3 w-3 rounded-full bg-blue-500 animate-pulse"></div>
+                <h3 className="text-lg font-medium text-gray-200">
+                  {progress < 50 
+                    ? "Fetching case details..." 
+                    : progress < 90 
+                      ? "Analyzing legal content..." 
+                      : "Finalizing..."}
+                </h3>
               </div>
-            )}
-            {error && (
-              <div className="space-y-4">
-                <ErrorMessage 
-                  error={error} 
-                  onRetry={handleRetry} 
-                  retryDisabled={isRetrying || retryCount >= 2}
-                />
-                {retryCount >= 2 && (
-                  <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-md border border-yellow-200 dark:border-yellow-800">
-                    <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                      Still having trouble? The server might be experiencing high traffic. 
-                      Try again in a few minutes or contact support if the problem persists.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+              <div className="text-sm font-mono text-blue-400">{Math.min(progress, 99)}%</div>
+            </div>
             
-            {data && !loading && !error && (
-              <div className="space-y-6">
+            <div className="h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>Document ID: {id}</span>
+              {progress > 10 && (
+                <span className="flex items-center">
+                  <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5"></span>
+                  {progress < 50 ? "Connected" : "Processing"}
+                </span>
+              )}
+            </div>
+            
+            {progress > 70 && progress < 95 && (
+              <div className="mt-4 p-3 bg-blue-900/30 border border-blue-800/50 rounded text-sm text-blue-200">
+                <div className="flex items-start">
+                  <svg className="h-4 w-4 text-blue-400 mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>This may take a moment as we analyze the legal document and extract key information.</span>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : error ? (
+          <div className="p-6">
+            <ErrorMessage 
+              error={error} 
+              onRetry={handleRetry} 
+              retryDisabled={isRetrying}
+            />
+          </div>
+        ) : data && (
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => router.back()}
+                className="flex items-center gap-1 text-gray-300 hover:text-white"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to results</span>
+              </Button>
+              
+              {data.case.citation && (
+                <div className="text-sm text-gray-400">
+                  {data.case.citation}
+                </div>
+              )}
+            </div>
+            
+            <Card className="glass-card border-white/10 overflow-hidden">
+              <CardHeader className="border-b border-white/10">
+                <CardTitle className="text-white text-2xl font-semibold">
+                  {title}
+                </CardTitle>
+              </CardHeader>
+              
+              <CardContent className="p-0">
                 {/* Similarity and link */}
                 <div className="p-6 border-b border-white/10">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-sm font-medium text-gray-300">Relevance Score</span>
-                        <div className="w-40">
-                          <div className="w-full relative">
-                            <Progress 
-                              value={data.similarity_score} 
-                              className="h-2 bg-gray-700/50 overflow-hidden"
-                            />
-                            <div 
-                              className="absolute top-0 left-0 h-full transition-all duration-300"
-                              style={{
-                                width: `${data.similarity_score}%`,
-                                backgroundColor: data.similarity_score > 70 ? '#10B981' : 
-                                              data.similarity_score > 40 ? '#F59E0B' : '#EF4444'
-                              }}
-                            />
+                    <div>
+                      <h3 className="text-lg font-medium text-white mb-1">Relevance Score</h3>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <div className="relative">
+                            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full ${data.similarity_score > 70 ? 'bg-green-500' : data.similarity_score > 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                style={{ width: `${Math.min(100, Math.max(0, data.similarity_score))}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
-                        <Badge 
-                          className={`text-white border-0 ${
-                            data.similarity_score > 70 ? 'bg-green-500/20' : 
-                            data.similarity_score > 40 ? 'bg-yellow-500/20' : 'bg-red-500/20'
-                          }`}
-                        >
-                          {data.similarity_score}%
-                        </Badge>
+                        <span className="text-sm font-medium text-gray-300">
+                          {data.similarity_score.toFixed(1)}%
+                        </span>
+                        {data.analysis_status === 'partial' && (
+                          <Badge variant="outline" className="text-yellow-400 border-yellow-400/30 bg-yellow-500/10">
+                            Analyzing...
+                          </Badge>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-400 mt-2">
-                        This score indicates how relevant this case is to your search query.
-                      </p>
                     </div>
                     
                     <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                      {data.case.url && (
-                        <Button 
-                          asChild 
-                          variant="outline" 
-                          className="bg-blue-500/10 border-blue-500/20 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 flex-1 sm:flex-none"
-                        >
-                          <a href={data.case.url} target="_blank" rel="noreferrer">
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            View Original
-                          </a>
-                        </Button>
-                      )}
                       <Button 
                         variant="outline" 
-                        className="bg-white/5 border-white/10 hover:bg-white/10 text-gray-300"
-                        onClick={() => window.print()}
+                        size="sm" 
+                        className="bg-blue-500/10 border-blue-500/20 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 flex-1 sm:flex-none"
+                        onClick={() => {
+                          if (data.case?.url) {
+                            window.open(data.case.url, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
                       >
-                        <FileText className="w-4 h-4 mr-2" />
-                        Print
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        View Original
+                      </Button>
+                      
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="bg-green-500/10 border-green-500/20 text-green-300 hover:bg-green-500/20 hover:text-green-200 flex-1 sm:flex-none"
+                        asChild 
+                      >
+                        <Link href={`/precedents/compare?case1=${id}`}>
+                          <Scale className="w-4 h-4 mr-2" />
+                          Compare Cases
+                        </Link>
                       </Button>
                     </div>
                   </div>
                 </div>
 
-                {/* Query terms */}
-                {data.query_terms && data.query_terms.length > 0 && (
-                  <div className="p-6 border-b border-white/10">
-                    <h3 className="text-sm font-medium text-gray-300 mb-2">Search Terms</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {data.query_terms.map((term, i) => (
-                        <Badge 
-                          key={i} 
-                          variant="outline" 
-                          className="bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 transition-colors"
-                        >
-                          {term}
-                        </Badge>
-                      ))}
+                {/* Case details */}
+                <div className="p-6 border-b border-white/10">
+                  <h3 className="text-white text-lg font-medium mb-4 flex items-center gap-2">
+                    <span className="bg-purple-500/20 text-purple-300 p-1.5 rounded-md">
+                      <FileText className="w-4 h-4" />
+                    </span>
+                    Case Details
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-400">Court</p>
+                      <p className="text-white">{data.case.court || 'N/A'}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-400">Citation</p>
+                      <p className="text-white">{data.case.citation || 'N/A'}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-400">Date</p>
+                      <p className="text-white">
+                        {data.case.date ? new Date(data.case.date).toLocaleDateString() : 'N/A'}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-400">Judges</p>
+                      <p className="text-white">
+                        {Array.isArray(data.case.judges) 
+                          ? data.case.judges.join(', ')
+                          : data.case.judges || 'N/A'}
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
 
-                {/* AI Summary - Only show if we have content */}
-                {(computedSummary && computedSummary !== 'No summary available. Please see the full document for details.') && (
+                {/* AI Summary */}
+                {computedSummary && (
                   <div className="p-6 border-b border-white/10">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-4">
                       <h3 className="text-white text-lg font-medium flex items-center gap-2">
                         <span className="bg-blue-500/20 text-blue-300 p-1.5 rounded-md">
                           <Gavel className="w-4 h-4" />
@@ -576,7 +611,7 @@ export default function CaseDetailsPage() {
                 )}
 
                 {/* Similar points */}
-                {data.similar_points && data.similar_points.length > 0 && (
+                {data.similar_points?.length > 0 && (
                   <div className="p-6 border-b border-white/10">
                     <h3 className="text-white text-lg font-medium mb-3 flex items-center gap-2">
                       <span className="bg-green-500/20 text-green-300 p-1.5 rounded-md">
@@ -599,7 +634,7 @@ export default function CaseDetailsPage() {
                   </div>
                 )}
 
-                {/* Full document with reader options - Only show if we have content */}
+                {/* Full document */}
                 {(data.case.full_text || data.case.full_text_html) && (
                   <div className="p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -608,34 +643,40 @@ export default function CaseDetailsPage() {
                         Full Case Document
                       </h3>
                       
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-gray-400 whitespace-nowrap">Text size:</span>
-                        <div className="inline-flex bg-white/5 rounded-md p-0.5">
-                          {(['sm', 'md', 'lg'] as const).map((size) => (
-                            <button
-                              key={size}
-                              className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                                readerSize === size 
-                                  ? 'bg-white/10 text-white' 
-                                  : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                              }`}
-                              onClick={() => setReaderSize(size)}
-                            >
-                              {size === 'sm' ? 'Small' : size === 'md' ? 'Medium' : 'Large'}
-                            </button>
-                          ))}
-                        </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-gray-400">Text size:</span>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={`px-2 h-7 text-xs ${readerSize === 'sm' ? 'bg-white/10 text-white' : 'text-gray-400'}`}
+                          onClick={() => setReaderSize('sm')}
+                        >
+                          Small
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={`px-2 h-7 text-xs ${readerSize === 'md' ? 'bg-white/10 text-white' : 'text-gray-400'}`}
+                          onClick={() => setReaderSize('md')}
+                        >
+                          Medium
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={`px-2 h-7 text-xs ${readerSize === 'lg' ? 'bg-white/10 text-white' : 'text-gray-400'}`}
+                          onClick={() => setReaderSize('lg')}
+                        >
+                          Large
+                        </Button>
                       </div>
                     </div>
                     
-                    <div className="glass-card border-white/10 rounded p-6">
+                    <div className="bg-black/30 rounded-lg p-4 border border-white/5 overflow-auto max-h-[70vh]">
                       {data.case.full_text_html ? (
-                        <div
-                          key="html-content"
-                          className={`text-gray-200 prose prose-invert max-w-3xl mx-auto prose-p:text-justify prose-p:leading-8 prose-p:indent-6 prose-headings:text-white prose-a:text-blue-300 prose-a:underline prose-mark:bg-yellow-500/20 prose-mark:text-yellow-200 ${
-                            readerSize === "sm" ? "prose-sm" : readerSize === "lg" ? "prose-lg" : ""
-                          }`}
-                          dangerouslySetInnerHTML={{ __html: data.case.full_text_html }}
+                        <div 
+                          className="prose prose-invert max-w-none" 
+                          dangerouslySetInnerHTML={{ __html: data.case.full_text_html as string }} 
                         />
                       ) : (
                         <StructuredPlainDocument
@@ -652,31 +693,41 @@ export default function CaseDetailsPage() {
                     </div>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </>
+        )}
+        
+        {!data && !loading && !error && (
+          <div className="p-6">
+            <div className="text-center py-12">
+              <AlertCircle className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-100">No case data available</h3>
+              <p className="mt-1 text-sm text-gray-400">We couldn't find the case you're looking for.</p>
+              <div className="mt-6">
+                <Button 
+                  variant="outline" 
+                  onClick={() => router.push('/precedents')}
+                  className="inline-flex items-center gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to precedents
+                </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+        )}
+        
+        {error && (
+          <div className="p-6">
+            <ErrorMessage 
+              error={error} 
+              onRetry={handleRetry} 
+              retryDisabled={isRetrying}
+            />
+          </div>
+        )}
       </div>
     </div>
-  );
-  };
-
-  // Render the appropriate layout with the content
-  const MainLayout = ({ children }: { children: React.ReactNode }) => {
-    if (user) {
-      return <DashboardLayout currentPage="precedent">{children}</DashboardLayout>;
-    }
-    return (
-      <>
-        <Navigation />
-        {children}
-      </>
-    );
-  };
-
-  return (
-    <MainLayout>
-      <MainContent />
-    </MainLayout>
   );
 }

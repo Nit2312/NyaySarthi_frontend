@@ -1,7 +1,5 @@
 import { API_CONFIG } from './config';
 
-import type { CaseDoc, CaseDetailsResponse } from './types/case';
-
 // Extend the Error interface to include status property
 interface ErrorWithStatus extends Error {
   status?: number;
@@ -52,11 +50,9 @@ class ApiService {
     }
     
     // Prepare the request
-    const url = new URL(`${API_BASE_URL}/case-details`);
-    const formData = new URLSearchParams();
-    formData.append('doc_id', docId);
+    const url = new URL(`${API_BASE_URL}/case/${encodeURIComponent(docId)}`);
     if (description) {
-      formData.append('description', description);
+      url.searchParams.append('description', description);
     }
     
     let response: Response;
@@ -77,14 +73,13 @@ class ApiService {
       // Make the request
       console.log(`[${requestId}] Fetching case details for ${docId}`);
       response = await fetch(url.toString(), {
-        method: 'POST',
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache',
           'X-Request-ID': requestId
         },
-        body: formData.toString(),
         signal: controller.signal,
       });
       
@@ -214,5 +209,17 @@ class ApiService {
   }
 }
 
+// Define the CaseDetailsResponse interface
+interface CaseDetailsResponse {
+  case: any;
+  similarity_score: number;
+  similar_points: string[];
+  query_terms?: string[];
+  success: boolean;
+  error?: string;
+  analysis_status?: 'complete' | 'partial';
+  cache_status?: 'hit' | 'miss';
+  _cachedAt?: number;
+}
 
 export default ApiService;
