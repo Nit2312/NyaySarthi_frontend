@@ -17,12 +17,36 @@ import { CaseAnalytics } from "@/components/case-analytics"
 import { SearchLoading, CaseCardSkeleton } from "@/components/ui/loading"
 import RecommendationService, { type Recommendation } from "@/lib/recommendation-service"
 
-// We will use CaseDoc from the API. Some fields may be missing depending on API/scrape.
-type PrecedentCase = CaseDoc & {
+interface SearchResultCase {
+  id: string
+  title: string
+  citation?: string
+  date?: string
+  court?: string
+  relevanceScore?: number
+  summary?: string
+  full_text?: string
+  full_text_html?: string
+  // Add other fields that might be present in the API response
+  [key: string]: any
+}
+
+interface SearchResult {
+  success: boolean
+  ik_error?: string
+  cases?: SearchResultCase[]
+  // Add other fields that might be present in the API response
+  [key: string]: any
+}
+
+interface PrecedentCase extends SearchResultCase {
+  // We will use CaseDoc from the API. Some fields may be missing depending on API/scrape.
   relevanceScore?: number
   category?: string
   keyPoints?: string[]
   parties?: { petitioner?: string; respondent?: string }
+  petitioner?: string
+  respondent?: string
 }
 
 export function PrecedentFinderInterface() {
@@ -30,8 +54,16 @@ export function PrecedentFinderInterface() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilters, setSelectedFilters] = useState<string[]>([])
-  const [searchResults, setSearchResults] = useState<PrecedentCase[]>([])
+  const [searchResults, setSearchResults] = useState<PrecedentCase[]>(() => {
+    // Load search results from session storage on initial render
+    if (typeof window !== 'undefined') {
+      const savedResults = sessionStorage.getItem('nyay-sarthi-search-results')
+      return savedResults ? JSON.parse(savedResults) : []
+    }
+    return []
+  })
   const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [selectedCase, setSelectedCase] = useState<PrecedentCase | null>(null)
   const [ikDiag, setIkDiag] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'relevance' | 'date' | 'court'>('relevance')
@@ -90,6 +122,11 @@ export function PrecedentFinderInterface() {
     const updated = [query, ...searchHistory.filter(h => h !== query)].slice(0, 10)
     setSearchHistory(updated)
     localStorage.setItem('nyay-sarthi-search-history', JSON.stringify(updated))
+    
+    // Save search results to session storage
+    if (results) {
+      sessionStorage.setItem('nyay-sarthi-search-results', JSON.stringify(results))
+    }
 
     // Record pattern for recommendations
     try {
@@ -164,127 +201,212 @@ export function PrecedentFinderInterface() {
     })
   }
 
+  // Optimize search query for better performance
+  const optimizeQuery = (query: string): string => {
+    // Simple query cleaning - remove extra spaces and limit length
+    return query
+      .trim()
+      .replace(/\s+/g, ' ')
+      .substring(0, 100) // Limit query length
+  }
+
+  const clearSearch = () => {
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchError(null)
+    setIkDiag(null)
+    // Clear search results from session storage
+    sessionStorage.removeItem('nyay-sarthi-search-results')
+  }
+
   const handleSearch = async (customQuery?: string) => {
     const query = (customQuery || searchQuery).trim()
-    if (!query) return
-
-    setIsSearching(true)
-    setIkDiag(null)
-    setSelectedCase(null)
+    if (!query) {
+      setSearchError('Please enter a search query')
+      return
+    }
     
-    // Create an AbortController for request cancellation
-    const abortController = new AbortController()
+    // Optimize the search query
+    const optimizedQuery = optimizeQuery(query)
+    if (!optimizedQuery || optimizedQuery.length < 3) {
+      setIkDiag('Please enter a more specific search query (at least 3 characters)')
+      return
+    }
+    
+    setSelectedCase(null)
+    setSearchError(null)
+    setIsSearching(true)
+    
+    // Show initial loading message
+    setIkDiag('Searching for relevant cases...')
     
     try {
-      // Clear previous results
-      setSearchResults([])
+      // Optimize query by removing extra spaces and special characters
+      const optimizedQuery = query.trim().replace(/\s+/g, ' ')
       
-      // Start loading state
-      setIkDiag('Initializing search...')
-      
-      // Loading progress indicator
-      const loadingMessages = [
-        'Connecting to Indian Kanoon...',
-        'Analyzing your query...',
-        'Searching case database...',
-        'Processing results...',
-        'Finalizing search...'
-      ]
-      
-      let messageIndex = 0
-      const loadingInterval = setInterval(() => {
-        if (messageIndex < loadingMessages.length) {
-          setIkDiag(loadingMessages[messageIndex])
-          messageIndex++
-        } else {
-          // Reset to first message
-          messageIndex = 0
-        }
-      }, 2000)
-      
+      // Show loading state with a slight delay to prevent UI flicker
+      const loadingTimer = setTimeout(() => {
+        setIkDiag(prev => prev || 'Searching through legal precedents...')
+      }, 500)
+
       try {
-        // Make the API request with better timeout handling
-        const searchResult = await ApiService.searchCases(query, 10, 45000)
+        // Make the API request with a 30-second timeout (handled by the API service)
+        const searchResult = await ApiService.searchCases(optimizedQuery, 5)
         
-        clearInterval(loadingInterval)
+        clearTimeout(loadingTimer)
         
-        if (!searchResult.success) {
-          throw new Error(searchResult.ik_error || 'Search failed')
+        if (!searchResult) {
+          throw new Error('No response from server. Please check your connection and try again.')
         }
 
-        const validCases = (searchResult.cases || []).filter(case_ => case_.id && case_.title)
-        const filteredAndSorted = sortResults(filterResults(validCases))
+        if (!searchResult.success) {
+          // Handle specific error cases
+          if (searchResult.ik_error?.includes('too many requests')) {
+            throw new Error('Too many requests. Please wait a moment before trying again.')
+          }
+          throw new Error(searchResult.ik_error || 'Search request failed. Please try again.')
+        }
+
+        // Validate and process the response
+        if (!Array.isArray(searchResult.cases)) {
+          console.error('Invalid response format:', searchResult)
+          throw new Error('Invalid response from server. Please try again.')
+        }
+
+        const validCases = searchResult.cases.filter(case_ => {
+          if (!case_?.id || !case_?.title) {
+            console.warn('Skipping invalid case:', case_)
+            return false
+          }
+          return true
+        })
         
+        if (validCases.length === 0) {
+          setSearchResults([]) // Clear any previous results
+          
+          // Generate helpful suggestions based on the search query
+          const suggestions = [
+            'Try using more specific legal terms related to your query',
+            'Check your spelling or try different keywords',
+            'Use fewer keywords to broaden your search',
+            'Try searching for a more general legal concept',
+            'Include specific legal terms or case citations if available'
+          ]
+          
+          // Show the first suggestion as the main message
+          setSearchError(suggestions[0])
+          
+          // Show additional tips
+          setIkDiag('Search tips: ' + 
+            '• Use specific legal terminology\n' +
+            '• Include relevant sections or articles\n' +
+            '• Try different combinations of keywords\n' +
+            '• Check your spelling'
+          )
+          
+          // Don't throw an error, just return early
+          return
+        }
+        
+        const filteredAndSorted = sortResults(filterResults(validCases))
         setSearchResults(filteredAndSorted)
         
         // Save to search history with results for recommendations
         saveSearchHistory(query, filteredAndSorted)
         
-        // Show success message
-        setIkDiag(`Found ${filteredAndSorted.length} cases`)
-        setTimeout(() => setIkDiag(null), 3000)
-        
+        // Handle success/warning cases
         if (searchResult.ik_error && searchResult.ik_error !== 'no_credentials') {
           console.warn('Indian Kanoon warning:', searchResult.ik_error)
-          setIkDiag(`Warning: ${searchResult.ik_error}. Results may be limited.`)
-        }
-        
-      } catch (searchError) {
-        clearInterval(loadingInterval)
-        
-        const errorMessage = searchError instanceof Error ? searchError.message : 'Search failed'
-        console.error('Search error:', searchError)
-        
-        // Show user-friendly error message
-        if (errorMessage.includes('timeout')) {
-          setIkDiag('Search is taking longer than usual. Please try with a shorter query or try again later.')
-        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-          setIkDiag('Network error. Please check your connection and try again.')
+          setIkDiag(`Note: ${searchResult.ik_error}. Showing available results.`)
         } else {
-          setIkDiag('Search failed. Please try a different query or try again later.')
+          // Show success message briefly
+          setIkDiag(`Found ${filteredAndSorted.length} relevant case${filteredAndSorted.length !== 1 ? 's' : ''}`)
+          setTimeout(() => setIkDiag(null), 3000)
         }
+        
+      } catch (error) {
+        console.error('Search error:', error)
+        
+        // Clear any pending loading timeout
+        clearTimeout(loadingTimer)
+        
+        // Handle different types of errors with user-friendly messages
+        let errorMessage = 'An error occurred during search.'
+        
+        if (error instanceof Error) {
+          const errorStr = error.message.toLowerCase()
+          
+          if (errorStr.includes('network') || errorStr.includes('failed to fetch')) {
+            errorMessage = 'Unable to connect to the server. Please check your internet connection.'
+          } else if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
+            errorMessage = 'The server is taking too long to respond. Please try again in a moment.'
+          } else if (errorStr.includes('too many requests')) {
+            errorMessage = 'Too many requests. Please wait a moment before trying again.'
+          } else if (errorStr.includes('no response')) {
+            errorMessage = 'No response from server. Please check your connection and try again.'
+          } else {
+            errorMessage = error.message || errorMessage
+          }
+        }
+        
+        setSearchError(errorMessage)
+        setIkDiag('')
+        setSearchResults([])
         
         // Clear error after 10 seconds
         setTimeout(() => {
-          setIkDiag(null)
+          setSearchError('')
         }, 10000)
+      } finally {
+        setIsSearching(false)
       }
-      
-    } catch (error) {
-      console.error('Unexpected search error:', error)
-      setIkDiag('An unexpected error occurred. Please try again.')
-      setTimeout(() => setIkDiag(null), 5000)
-    } finally {
-      setIsSearching(false)
-    }
-  }
-            setIkDiag(ik_error)
-          }
-        } else if (filteredAndSorted.length === 0) {
-          setIkDiag('No matching cases found. Try different search terms.')
-        } else {
-          setIkDiag(null) // Clear any previous messages
-        }
-        
-      } catch (error: any) {
-        clearInterval(loadingInterval)
-        throw error // Re-throw to be caught by outer try-catch
-      }
-      
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Search error:', error)
+      
+      // More detailed error handling with specific error messages
+      let errorMessage = 'An error occurred while searching.'
+      let errorDetails = ''
+      let clearAfter = 5000 // Default 5 seconds for error display
+      
+      if (error instanceof Error) {
+        const errorMsg = error.message.toLowerCase()
+        errorDetails = error.message
+        
+        // Handle specific error cases with more specific messages
+        if (errorMsg.includes('rate limit') || errorMsg.includes('too many requests')) {
+          errorMessage = 'Search limit reached'
+          errorDetails = 'Please wait a moment before trying again.'
+          clearAfter = 10000 // Show rate limit errors longer
+        } 
+        else if (errorMsg.includes('network') || errorMsg.includes('offline') || errorMsg.includes('timeout')) {
+          errorMessage = 'Connection issue'
+          errorDetails = 'Please check your internet connection and try again.'
+        } 
+        else if (errorMsg.includes('no result') || errorMsg.includes('not found')) {
+          errorMessage = 'No results found'
+          errorDetails = 'Try different search terms or broaden your search.'
+        }
+        else if (errorMsg.includes('time out') || errorMsg.includes('timed out')) {
+          errorMessage = 'Request timed out'
+          errorDetails = 'The server took too long to respond. Please try again.'
+        }
+      }
+      
+      console.warn(`Search failed: ${errorMessage} - ${errorDetails}`)
+      
+      // Set error states
+      setSearchError(errorMessage)
+      setIkDiag(errorDetails || errorMessage)
       setSearchResults([])
       
-      // Provide user-friendly error messages
-      if (error.message?.includes('timeout')) {
-        setIkDiag('The search is taking longer than expected. The system is still working on it. Please wait a moment or try a different search.')
-      } else if (error.message?.includes('network')) {
-        setIkDiag('Unable to connect to the server. Please check your internet connection and try again.')
-      } else if (error.message?.includes('Failed to fetch')) {
-        setIkDiag('Could not connect to the server. Please check your internet connection and try again.')
-      } else {
-        setIkDiag('We encountered an issue with your search: ' + (error.message || 'Please try again later.'))
-      }
+      // Clear the error after specified duration
+      const timeoutId = setTimeout(() => {
+        setSearchError(null)
+        setIkDiag(null)
+      }, clearAfter)
+      
+      // Cleanup timeout on component unmount
+      return () => clearTimeout(timeoutId)
     } finally {
       setIsSearching(false)
     }
@@ -332,13 +454,25 @@ export function PrecedentFinderInterface() {
               <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <textarea
+                  <Input
+                    type="text"
                     placeholder={t("precedent.searchPlaceholder")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-3 py-3 bg-white/5 border-white/10 text-white placeholder:text-gray-400 h-28 w-full rounded-md resize-y"
-                    onKeyDown={(e) => (e.key === "Enter" && (e.metaKey || e.ctrlKey)) && handleSearch()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    className="w-full bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent pl-10 pr-10"
                   />
+                  {searchQuery && (
+                    <button
+                      onClick={clearSearch}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+                      aria-label="Clear search"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
                 {/* Smart Suggestions */}
                 {(smartSuggestions.length > 0 && searchQuery.length > 1) && (
@@ -376,23 +510,21 @@ export function PrecedentFinderInterface() {
                   </div>
                 )}
               </div>
-              <div className="flex flex-col gap-2">
-                <Button
-                  onClick={handleSearch}
+              <div className="flex space-x-2">
+                <Button 
+                  onClick={() => handleSearch()}
                   disabled={isSearching}
-                  className="bg-gradient-to-r from-white/20 to-white/10 hover:from-white/30 hover:to-white/20 text-black border-white/20 h-12 px-8"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2"
                 >
                   {isSearching ? (
                     <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      {t("precedent.searching")}
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Searching...
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Search className="w-4 h-4" />
-                      {t("precedent.search")}
-                    </div>
-                  )}
+                  ) : 'Search'}
                 </Button>
                 <Button
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
@@ -469,9 +601,21 @@ export function PrecedentFinderInterface() {
             )}
 
             {/* Diagnostic Messages */}
-            {ikDiag && (
-              <div className="mt-4 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded p-2">
-                Diagnostic: {ikDiag}. If this persists, check your Indian Kanoon API credentials or enable SCRAPE_INDIAN_KANOON=true on backend.
+            {(ikDiag || searchError) && (
+              <div className={`mt-4 p-3 rounded-md text-sm ${
+                searchError 
+                  ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' 
+                  : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+              }`}>
+                {searchError || ikDiag}
+                {searchError && (
+                  <button 
+                    onClick={() => setSearchError(null)} 
+                    className="float-right text-sm font-medium hover:opacity-80"
+                  >
+                    Dismiss
+                  </button>
+                )}
               </div>
             )}
 

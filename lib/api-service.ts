@@ -83,7 +83,7 @@ export class ApiService {
   static async searchCases(
     query: string, 
     limit: number = 5,
-    timeoutMs: number = 60000 // Increased timeout to 60 seconds
+    timeoutMs: number = 30000 // 30 seconds default timeout
   ): Promise<{ 
     response: string; 
     cases: CaseDoc[]; 
@@ -92,40 +92,38 @@ export class ApiService {
     query_used?: string;
     success: boolean;
   }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
     const formData = new URLSearchParams()
     formData.append('input', query)
     formData.append('limit', String(limit))
 
     const url = `${API_BASE_URL}${API_CONFIG.ENDPOINTS.CASES_SEARCH}`
-    console.log('Making request to:', url, 'with query:', query)
-    
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      console.log('Request timeout reached, aborting...')
-      controller.abort(new Error(`Request timed out after ${timeoutMs}ms`))
-    }, timeoutMs)
     
     try {
-      console.log('Sending search request...')
+      console.log(`[API] Sending search request to: ${url}`, { query, limit });
+      
       const response = await fetch(url, {
         method: 'POST',
         body: formData,
-        signal: controller.signal,
         credentials: 'include',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         },
       })
-      
-      clearTimeout(timeoutId)
       
       if (!response.ok) {
         let errorText = 'No error details available'
         try {
-          errorText = await response.text()
+          const errorData = await response.json()
+          errorText = errorData.message || JSON.stringify(errorData)
         } catch (e) {
-          console.warn('Failed to read error response body:', e)
+          console.warn('Failed to parse error response:', e)
         }
         
         const errorInfo = {
@@ -153,8 +151,6 @@ export class ApiService {
       }
       
     } catch (error) {
-      clearTimeout(timeoutId)
-      
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       const errorDetails = error instanceof Error ? {
         name: error.name,
@@ -196,12 +192,24 @@ export class ApiService {
     success: boolean
     error?: string
   }> {
+    if (!docId) {
+      throw new Error('Document ID is required')
+    }
     const formData = new URLSearchParams()
-    formData.append('doc_id', docId)
-    if (description) formData.append('description', description)
+    formData.append('doc_id', docId.trim())
+    if (description && description.trim()) {
+      formData.append('description', description.trim())
+    }
 
-    const url = `${API_BASE_URL}${API_CONFIG.ENDPOINTS.CASES_DETAILS}`
-    console.log('Fetching case details for docId:', docId)
+    const endpoint = API_CONFIG.ENDPOINTS.CASES_DETAILS
+    const url = `${API_BASE_URL}${endpoint}`
+    
+    console.log('Fetching case details:', {
+      docId: docId,
+      hasDescription: !!description,
+      timeoutMs,
+      url: `${API_BASE_URL}${endpoint}`
+    })
     
     const controller = new AbortController()
     const timeoutId = setTimeout(() => {
@@ -221,8 +229,6 @@ export class ApiService {
         },
       })
       
-      clearTimeout(timeoutId)
-
       if (!response.ok) {
         let errorText = 'No error details available'
         try {
@@ -266,27 +272,47 @@ export class ApiService {
       return data
       
     } catch (error) {
-      clearTimeout(timeoutId)
+      let errorMessage = 'Failed to load case details.'
+      let errorDetails: Record<string, any> = {}
       
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { error }
+      if (error instanceof Error) {
+        errorMessage = error.message
+        errorDetails = {
+          name: error.name,
+          stack: error.stack,
+          isNetworkError: error.message.includes('Failed to fetch') || 
+                         error.message.includes('NetworkError') ||
+                         error.message.includes('Network request failed')
+        }
+        
+        // Handle specific error cases
+        if (error.name === 'AbortError') {
+          errorMessage = 'Request was cancelled or timed out.'
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Unable to connect to the server. Please check your internet connection.'
+        }
+      } else {
+        errorDetails = { error }
+      }
       
       console.error('Case details fetch failed:', {
         error: errorMessage,
-        details: errorDetails,
+        ...errorDetails,
         url,
-        docId
+        endpoint: API_CONFIG.ENDPOINTS.CASES_DETAILS,
+        docId,
+        timestamp: new Date().toISOString()
       })
       
-      throw new Error(
-        errorMessage.includes('timeout') 
-          ? errorMessage 
-          : 'Failed to load case details. Please try again later.'
-      )
+      // Only include the original message if it's a timeout
+      const userFacingMessage = errorMessage.includes('timeout') || 
+                              errorMessage.includes('AbortError')
+        ? errorMessage 
+        : 'Failed to load case details. Please try again later.'
+      
+      const errorToThrow = new Error(userFacingMessage)
+      errorToThrow.name = error instanceof Error ? error.name : 'ApiError'
+      throw errorToThrow
     }
   }
 }

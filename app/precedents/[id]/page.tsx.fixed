@@ -1,0 +1,23 @@
+// ... [previous imports and code remain the same until the end of MainContent]
+    </div>
+  );
+};
+
+// Render the appropriate layout with the content
+const MainLayout = ({ children }: { children: React.ReactNode }) => {
+  if (user) {
+    return <DashboardLayout currentPage="precedent">{children}</DashboardLayout>;
+  }
+  return (
+    <>
+      <Navigation />
+      {children}
+    </>
+  );
+};
+
+return (
+  <MainLayout>
+    <MainContent />
+  </MainLayout>
+);
