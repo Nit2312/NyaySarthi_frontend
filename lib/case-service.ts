@@ -1,6 +1,12 @@
 import { API_CONFIG } from './config';
 import type { CaseDoc, CaseDetailsResponse } from './types/case';
 
+// Extend the Error type to include status
+interface ErrorWithStatus extends Error {
+  status?: number;
+  response?: any;
+}
+
 // In-memory cache for case details
 interface CacheEntry<T> {
   data: T | null;
@@ -61,7 +67,8 @@ export class CaseService {
       if (isCacheValid(cached.timestamp) && cached.data !== null) {
         console.log(`[Cache] Returning cached case details for ${docId}`);
         return cached.data; 
-      } else if (cached.data === null) {
+      } else if (cached.data === null && !cached.promise) {
+        // Only throw if we have null data and no pending promise
         throw new Error('Cached data is null');
       }
       // If we have a cached promise, return it
@@ -69,12 +76,17 @@ export class CaseService {
         console.log(`[Cache] Returning pending request for ${docId}`);
         return cached.promise;
       }
+      // If we get here, we have an invalid cache entry, so remove it
+      caseDetailsCache.delete(cacheKey);
     }
     
     // Create the request promise
     const requestPromise = (async (): Promise<CaseDetailsResponse> => {
-      const url = new URL(`${this.API_BASE}/case-details`);
+      const endpoint = `${this.API_BASE}${API_CONFIG.ENDPOINTS.CASES_DETAILS}`;
+      const url = new URL(endpoint);
       const formData = new URLSearchParams();
+      
+      // Use the correct parameter name that the backend expects
       formData.append('doc_id', docId.trim());
       
       // Only include description if it's not empty
@@ -82,11 +94,6 @@ export class CaseService {
       if (trimmedDesc) {
         formData.append('description', trimmedDesc);
       }
-      
-      // Add minimal flag to reduce response size
-      formData.append('minimal', 'true');
-      
-      const endpoint = '/case-details';
       const requestId = Math.random().toString(36).substring(2, 9);
       
       const controller = new AbortController();
@@ -97,6 +104,13 @@ export class CaseService {
       
       try {
         const startTime = performance.now();
+        console.log(`[CaseService] Making request to: ${url.toString()}`);
+        console.log(`[CaseService] Request data:`, {
+          docId: docId ? `${docId.substring(0, 4)}...` : 'none',
+          hasDescription: !!trimmedDesc,
+          endpoint: url.toString()
+        });
+
         const response = await fetch(url.toString(), {
           method: 'POST',
           headers: {
@@ -106,6 +120,8 @@ export class CaseService {
           body: formData.toString(),
           signal: signal
         });
+
+        console.log(`[CaseService] Response status: ${response.status}`);
         
         const responseTime = Math.round(performance.now() - startTime);
         console.log(`[CaseService] Response received in ${responseTime}ms`, {
@@ -147,29 +163,40 @@ export class CaseService {
         
         const data = await response.json();
         
-        if (!data.success) {
-          // Enhanced error logging for debugging
-          console.error(`[${requestId}] Failed to process case details. Data:`, data);
-          const error = new Error(data.error || 'Failed to process case details');
-          (error as any).status = 500;
+        if (data.error || !data.success) {
+          const error = new Error(data.error || 'Failed to process case details') as ErrorWithStatus;
+          error.status = response.status || 500;
           throw error;
         }
-        
-        // Add analysis status if not present
-        if (!data.analysis_status) {
-          data.analysis_status = data.similar_points?.length ? 'complete' : 'partial';
+
+        // Ensure we have the expected response structure
+        const responseData = {
+          ...data,
+          // Ensure we have a case object with required fields
+          case: data.case || {
+            id: docId,
+            title: data.title || 'Case Details',
+            full_text: data.full_text || '',
+            full_text_html: data.full_text_html || '',
+            ...data
+          },
+          // Ensure we have default values for other fields
+          similarity_score: data.similarity_score || 0,
+          similar_points: data.similar_points || [],
+          analysis_status: data.analysis_status || 'partial',
+          cache_status: 'miss' as const,
+          _cachedAt: Date.now()
+        };
+
+        // Cache the result if caching is enabled
+        if (useCache) {
+          caseDetailsCache.set(cacheKey, {
+            data: responseData,
+            timestamp: Date.now()
+          });
         }
 
-        // Add cache timestamp
-        data._cachedAt = Date.now();
-
-        // Defensive: validate required fields before returning
-        if (!data.case_details) {
-          console.error(`[${requestId}] Missing 'case_details' in response data:`, data);
-          throw new Error('Invalid response: Missing case details');
-        }
-
-        return data as CaseDetailsResponse;
+        return responseData;
         
       } catch (error: any) {
         clearTimeout(timeoutId);
@@ -224,25 +251,42 @@ export class CaseService {
       caseDetailsCache.set(cacheKey, cacheEntry);
       
       // Update the cache when the promise resolves
-      requestPromise.then(data => {
-        const cached = caseDetailsCache.get(cacheKey);
-        if (cached) {
-          cached.data = data;
-          cached.timestamp = Date.now();
-        }
-      }).catch(() => {
-        // On error, remove the cache entry to allow retries
-        caseDetailsCache.delete(cacheKey);
-      });
+      requestPromise
+        .then(data => {
+          const cached = caseDetailsCache.get(cacheKey);
+          if (cached) {
+            // Only update if this is still the same promise we cached
+            if (cached.promise === requestPromise) {
+              cached.data = data;
+              cached.timestamp = Date.now();
+              // Clear the promise since we now have the data
+              delete cached.promise;
+            }
+          }
+          return data;
+        })
+        .catch(error => {
+          // On error, remove the cache entry to allow retries
+          const cached = caseDetailsCache.get(cacheKey);
+          // Only remove if this is still the same promise we cached
+          if (cached?.promise === requestPromise) {
+            caseDetailsCache.delete(cacheKey);
+          }
+          // Re-throw to ensure the error propagates to the original caller
+          throw error;
+        });
       
       // Set a TTL for the cache entry
-      setTimeout(() => {
+      const ttlTimer = setTimeout(() => {
         const cached = caseDetailsCache.get(cacheKey);
-        // Only delete if the entry hasn't been updated
-        if (cached && Date.now() - cached.timestamp >= CACHE_TTL) {
+        // Only delete if the entry hasn't been updated and this is still the same promise
+        if (cached && cached.promise === requestPromise && Date.now() - cached.timestamp >= CACHE_TTL) {
           caseDetailsCache.delete(cacheKey);
         }
       }, CACHE_TTL);
+      
+      // Clean up the timer when the promise settles
+      requestPromise.finally(() => clearTimeout(ttlTimer));
     }
     
     return requestPromise;

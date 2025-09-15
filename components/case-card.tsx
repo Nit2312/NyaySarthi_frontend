@@ -138,11 +138,11 @@ export function CaseCard({
             )}
           </div>
           
-          {typeof caseData.relevanceScore === 'number' && (
+          {/* {typeof caseData.relevanceScore === 'number' && (
             <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
               {Math.round(caseData.relevanceScore)}% {t("precedent.relevant")}
             </Badge>
-          )}
+          )} */}
         </div>
 
         <div className="grid grid-cols-2 gap-4 mb-4 text-sm">

@@ -4,7 +4,7 @@ export const API_CONFIG = {
   ENDPOINTS: {
     CHAT: '/chat',
     CASES_SEARCH: '/cases/search',
-    CASES_DETAILS: '/cases/details',
+    CASES_DETAILS: '/case-details',  // Updated to match backend route
     HEALTH: '/',
   },
   TIMEOUT: 30000, // 30 seconds
