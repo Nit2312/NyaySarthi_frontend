@@ -277,7 +277,50 @@ class ApiService {
   private static getCacheKey(docId: string, description?: string): string {
     return description ? `${docId}:${description}` : docId;
   }
-}
 
+  /**
+   * Send a chat message to the backend
+   */
+  static async sendChatMessage(
+    message: string,
+    conversationId: string,
+    signal?: AbortSignal
+  ): Promise<{
+    response: string;
+    conversation_id?: string;
+    source?: string;
+    cases?: any[];
+    ik_error?: string;
+  }> {
+    const requestId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const url = `${API_BASE_URL}/chat`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          input: message,
+          conversation_id: conversationId,
+        }),
+        signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error(`[${requestId}] Error sending chat message:`, error);
+      throw error;
+    }
+  }
+}
 
 export default ApiService;
