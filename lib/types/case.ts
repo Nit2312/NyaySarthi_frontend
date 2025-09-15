@@ -21,5 +21,7 @@ export interface CaseDetailsResponse {
   error?: string;
   analysis_status?: 'complete' | 'partial';
   cache_status?: 'hit' | 'miss';
+  timestamp?: string;
+  request_id?: string;
   _cachedAt?: number;
 }

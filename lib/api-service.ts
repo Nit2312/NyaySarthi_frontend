@@ -19,8 +19,9 @@ const caseDetailsCache = new Map<string, CachedCaseDetails>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes TTL
 
 class ApiService {
-  private static readonly DEFAULT_TIMEOUT = 30000;
+  private static readonly DEFAULT_TIMEOUT = 30000; // 30 seconds
   private static readonly MAX_RETRIES = 2;
+  private static readonly REQUEST_TIMEOUT = 30000; // 30 seconds for the actual request
 
   /**
    * Get case details with caching and retry logic
@@ -51,45 +52,109 @@ class ApiService {
       }
     }
     
-    // Prepare the request
-    const url = new URL(`${API_BASE_URL}/case-details`);
+    // Prepare the request to use Next.js API route
+    const endpoint = `/api${API_CONFIG.ENDPOINTS.CASES_DETAILS}`;
+    console.log(`[${requestId}] Making request to: ${endpoint}`);
+    
+    // Use URLSearchParams for form data
     const formData = new URLSearchParams();
     formData.append('doc_id', docId);
     if (description) {
       formData.append('description', description);
     }
     
+    // Log request details (without sensitive data)
+    console.log(`[${requestId}] Request details:`, {
+      docId: docId ? `${docId.substring(0, 4)}...` : 'none',
+      hasDescription: !!description,
+      useCache,
+      endpoint
+    });
+    
     let response: Response;
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const controller = new AbortController();
     
     try {
-      // Set up timeout and signal handling
+      // Set up a promise that will reject after the timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
+
+      // Set up signal handling
       if (signal) {
-        signal.addEventListener('abort', () => controller.abort());
+        signal.addEventListener('abort', () => {
+          clearTimeout(timeoutId!);
+          controller.abort();
+        });
       }
       
-      // Set up timeout
-      timeoutId = setTimeout(() => {
-        controller.abort();
-      }, timeoutMs);
+      // Make the request through Next.js API route
+      console.log(`[${requestId}] Fetching case details for document`);
+      try {
+        const requestOptions: RequestInit = {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Request-ID': requestId,
+            'Accept': 'application/json'
+          },
+          body: formData.toString(),
+          signal: controller.signal,
+          // Remove credentials for same-origin requests
+          credentials: 'same-origin'
+        };
+        
+        // Log minimal request info
+        console.log(`[${requestId}] Sending request to ${endpoint}`);
+        
+        // Race between the fetch and the timeout
+        response = await Promise.race([
+          fetch(endpoint, requestOptions),
+          timeoutPromise
+        ]) as Response;
+      } catch (error) {
+        // Clear the timeout to prevent memory leaks
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        let errorMessage = 'Unknown error';
+        let isTimeout = false;
+        
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          isTimeout = errorMessage.includes('time') || error.name === 'AbortError';
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+          isTimeout = error.toLowerCase().includes('time');
+        }
+        
+        console.error(`[${requestId}] Request error:`, error);
+        
+        // More detailed error information
+        const errorDetails = {
+          message: isTimeout ? 'Request timed out' : 'Failed to connect to the server',
+          details: errorMessage,
+          endpoint,
+          docId: docId ? `${docId.substring(0, 4)}...` : 'none',
+          timestamp: new Date().toISOString(),
+          type: isTimeout ? 'timeout' : 'network_error'
+        };
+        
+        console.error(`[${requestId}] Error details:`, errorDetails);
+        
+        // Re-throw with better error message
+        const errorToThrow = new Error(JSON.stringify(errorDetails, null, 2));
+        errorToThrow.name = isTimeout ? 'TimeoutError' : 'NetworkError';
+        throw errorToThrow;
+      }
       
-      // Make the request
-      console.log(`[${requestId}] Fetching case details for ${docId}`);
-      response = await fetch(url.toString(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'X-Request-ID': requestId
-        },
-        body: formData.toString(),
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      timeoutId = null;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       
       const responseTime = Math.round(performance.now() - startTime);
       console.log(`[${requestId}] Response received in ${responseTime}ms`);
