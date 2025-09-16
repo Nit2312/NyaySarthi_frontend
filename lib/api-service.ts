@@ -19,6 +19,23 @@ const caseDetailsCache = new Map<string, CachedCaseDetails>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes TTL
 
 class ApiService {
+  /**
+   * Check the health status of the API
+   */
+  static async checkHealth(): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Health check failed:', error);
+      return false;
+    }
+  }
   private static readonly DEFAULT_TIMEOUT = 30000; // 30 seconds
   private static readonly MAX_RETRIES = 2;
   private static readonly REQUEST_TIMEOUT = 30000; // 30 seconds for the actual request
@@ -323,4 +340,4 @@ class ApiService {
   }
 }
 
-export default ApiService;
+export { ApiService };

@@ -39,11 +39,11 @@ export function TargetAudience() {
       <div className="container mx-auto max-w-6xl">
         <div className="text-center space-y-4 mb-16">
           <div className="flex items-center justify-center gap-4 mb-6">
-            <img
+            {/* <img
               src="/images/indian-constitution.png"
               alt="Indian Constitution"
               className="w-16 h-16 rounded-lg object-cover glow-subtle"
-            />
+            /> */}
             <h2 className="text-4xl lg:text-5xl font-bold font-dm-sans text-premium text-glow leading-snug pb-2">
               {t("audience.title")}
             </h2>
