@@ -40,6 +40,30 @@ export function CaseCard({
   const [isHovered, setIsHovered] = useState(false)
   const [isNavigating, setIsNavigating] = useState(false)
   const [isPrefetching, setIsPrefetching] = useState(false)
+
+  // Robust date formatter for various IK date formats
+  const formatDate = useCallback((value?: string) => {
+    if (!value) return '—'
+    const v = value.trim()
+    // Try native Date first
+    const d1 = new Date(v)
+    if (!isNaN(d1.getTime())) {
+      return d1.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })
+    }
+    // Try DD-MM-YYYY or DD/MM/YYYY
+    const m = v.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/)
+    if (m) {
+      const dd = parseInt(m[1], 10)
+      const mm = parseInt(m[2], 10) - 1
+      const yyyy = parseInt(m[3].length === 2 ? ('20' + m[3]) : m[3], 10)
+      const d = new Date(yyyy, mm, dd)
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })
+      }
+    }
+    // Fallback: return as-is
+    return v
+  }, [])
   
   // Handle case click with prefetching
   const handleCardClick = useCallback(async (e: React.MouseEvent) => {
@@ -152,9 +176,7 @@ export function CaseCard({
           </div>
           <div className="flex items-center gap-2 text-gray-300">
             <Calendar className="w-4 h-4 flex-shrink-0" />
-            <span className="truncate">
-              {caseData.date ? new Date(caseData.date).toLocaleDateString() : '—'}
-            </span>
+            <span className="truncate">{formatDate(caseData.date)}</span>
           </div>
         </div>
 

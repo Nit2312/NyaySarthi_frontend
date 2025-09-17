@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
-import ApiService from "@/lib/api-service"
+import { ApiService } from "@/lib/api-service"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 

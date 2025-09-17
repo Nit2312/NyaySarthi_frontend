@@ -14,6 +14,7 @@ import { getEnhancedLegalResponse } from "@/lib/indian-legal-context"
 import { useLoading } from "@/hooks/use-loading"
 import { useDebounce } from "@/hooks/use-debounce"
 import Link from "next/link"
+import useSpeech from "@/hooks/use-speech"
 
 interface Message {
   id: string
@@ -40,6 +41,22 @@ export function ChatInterface() {
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Speech-to-text integration
+  const {
+    supported: sttSupported,
+    listening,
+    interimTranscript,
+    start: startListening,
+    stop: stopListening,
+    reset: resetListening,
+  } = useSpeech({
+    lang: language === "hi" ? "hi-IN" : "en-IN",
+    onResult: (text) => {
+      // Append recognized text to the input
+      setInputValue((prev) => (prev ? prev + " " : "") + text)
+    },
+  })
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -222,9 +239,14 @@ export function ChatInterface() {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
-                className="glass-strong border-white/20 pr-24 py-4 text-base font-medium glow-subtle focus:glow-medium transition-all duration-300"
+                className="glass-strong border-white/20 pr-28 py-4 text-base font-medium glow-subtle focus:glow-medium transition-all duration-300"
                 disabled={isLoading}
               />
+              {listening && (
+                <div className="absolute left-3 bottom-[-1.25rem] text-xs text-accent/80">
+                  Listening... {interimTranscript}
+                </div>
+              )}
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-2">
                 <Button
                   variant="ghost"
@@ -236,9 +258,12 @@ export function ChatInterface() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-10 w-10 p-0 glass glow-subtle hover:glow-medium transition-all"
+                  onClick={() => (listening ? stopListening() : startListening())}
+                  aria-pressed={listening}
+                  title={sttSupported ? (listening ? "Stop voice input" : "Start voice input") : "Voice input not supported in this browser"}
+                  className={`h-10 w-10 p-0 glass ${listening ? "bg-primary/20" : ""} glow-subtle hover:glow-medium transition-all`}
                 >
-                  <Mic className="w-5 h-5" />
+                  <Mic className={`w-5 h-5 ${listening ? "animate-pulse text-primary" : ""}`} />
                 </Button>
               </div>
             </div>

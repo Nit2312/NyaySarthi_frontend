@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { useLanguage } from "@/lib/language-context"
-import { Search, BookOpen, Scale, Calendar, MapPin, User, Download, Eye, Star, Filter, TrendingUp, Clock, Bookmark, BarChart3, SortDesc, GitCompare, Plus, Check, Activity } from "lucide-react"
+import { Search, BookOpen, Scale, Calendar, MapPin, User, Download, Eye, Star, Filter, TrendingUp, Clock, Bookmark, BarChart3, SortDesc, GitCompare, Plus, Check, Activity, Mic } from "lucide-react"
 import type { CaseDoc } from "@/lib/types/case"
 import { CaseService } from "@/lib/case-service"
 import { useRouter } from "next/navigation"
@@ -18,6 +18,7 @@ import { CaseAnalytics } from "@/components/case-analytics"
 import { SearchLoading } from "@/components/ui/loading"
 import { CaseCard } from "@/components/case-card"
 import RecommendationService, { type Recommendation } from "@/lib/recommendation-service"
+import useSpeech from "@/hooks/use-speech"
 
 interface SearchResultCase {
   id: string
@@ -147,6 +148,12 @@ export function PrecedentFinderInterface() {
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [smartSuggestions, setSmartSuggestions] = useState<string[]>([])
+
+  // Speech-to-text for search input
+  const { supported: sttSupported, listening, interimTranscript, start: startListening, stop: stopListening } = useSpeech({
+    lang: typeof navigator !== 'undefined' && navigator.language?.startsWith('hi') ? 'hi-IN' : 'en-IN',
+    onResult: (text) => setSearchQuery(prev => (prev ? prev + ' ' : '') + text),
+  })
 
   // No more static mock data; we fetch real results from the backend
 
@@ -395,7 +402,7 @@ export function PrecedentFinderInterface() {
       }
 
       // Process and validate cases
-      const validCases = searchResult.cases
+      let validCases = searchResult.cases
         .filter((caseDoc: any) => {
           if (!caseDoc?.id || !caseDoc?.title) {
             console.warn('Skipping invalid case:', caseDoc)
@@ -415,6 +422,35 @@ export function PrecedentFinderInterface() {
           summary: caseDoc.summary || 'No summary available',
           relevanceScore: caseDoc.relevanceScore || 0
         }))
+
+      // Client-side enrichment: fetch details for items with generic title or missing metadata
+      try {
+        const needsEnrichment = validCases.filter(c => /full\s*document/i.test(c.title) || !c.court || !c.date || !c.citation)
+        if (needsEnrichment.length > 0) {
+          const enriched = await Promise.all(needsEnrichment.map(async (c) => {
+            try {
+              const d = await CaseService.getCaseDetails(c.id, query)
+              const title = (d.case?.title || '').trim()
+              const merged = {
+                ...c,
+                title: title && /full\s*document/i.test(c.title) ? title : (c.title || title || `Case ${c.id}`),
+                court: c.court && c.court !== 'Court not specified' ? c.court : (d.case?.court || c.court),
+                date: c.date && c.date !== 'Date not available' ? c.date : (d.case?.date || c.date),
+                citation: c.citation && c.citation !== 'Citation not available' ? c.citation : (d.case?.citation || c.citation),
+                url: c.url || d.case?.url,
+              }
+              return merged
+            } catch {
+              return c
+            }
+          }))
+          // Merge back
+          const enrichedMap = new Map(enriched.map(c => [c.id, c]))
+          validCases = validCases.map(c => enrichedMap.get(c.id) || c)
+        }
+      } catch (e) {
+        console.warn('Client enrichment failed:', e)
+      }
       
       if (validCases.length === 0) {
         // Only show no results message if this isn't a retry
@@ -544,18 +580,33 @@ export function PrecedentFinderInterface() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    className="w-full bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent pl-10 pr-10"
+                    className="w-full bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent pl-10 pr-24"
                   />
-                  {searchQuery && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    {searchQuery && (
+                      <button
+                        onClick={clearSearch}
+                        className="h-9 w-9 rounded-md flex items-center justify-center text-gray-400 hover:text-white focus:outline-none"
+                        aria-label="Clear search"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
                     <button
-                      onClick={clearSearch}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
-                      aria-label="Clear search"
+                      onClick={() => (listening ? stopListening() : startListening())}
+                      className={`h-9 w-9 rounded-md flex items-center justify-center transition-colors ${listening ? 'bg-blue-500/20' : 'bg-white/5 hover:bg-white/10'}`}
+                      title={sttSupported ? (listening ? 'Stop voice input' : 'Start voice input') : 'Voice input not supported'}
+                      aria-pressed={listening}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
+                      <Mic className={`w-4 h-4 ${listening ? 'text-blue-400 animate-pulse' : 'text-gray-300'}`} />
                     </button>
+                  </div>
+                  {listening && (
+                    <div className="absolute left-10 mt-1 text-xs text-blue-300/80">
+                      Listening... {interimTranscript}
+                    </div>
                   )}
                 </div>
                 {/* Smart Suggestions */}

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { X, GitCompare, Calendar, MapPin, ExternalLink, Download, FileText } from "lucide-react"
-import ApiService from "@/lib/api-service"
+import { ApiService } from "@/lib/api-service"
 import type { CaseDoc } from "@/lib/types/case"
 
 interface ExtendedCaseDoc extends CaseDoc {

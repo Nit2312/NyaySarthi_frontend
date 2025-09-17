@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart3, PieChart, TrendingUp, Calendar, MapPin, Gavel, Users, FileText, Download } from "lucide-react"
-import ApiService from "@/lib/api-service"
+import { ApiService } from "@/lib/api-service"
 import type { CaseDoc } from "@/lib/types/case"
 
 interface CaseAnalyticsProps {

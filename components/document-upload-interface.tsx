@@ -102,7 +102,7 @@ export function DocumentUploadInterface() {
   }, [])
 
   const handleFiles = (files: FileList) => {
-    Array.from(files).forEach((file) => {
+    Array.from(files).forEach(async (file) => {
       const newDoc: UploadedDocument = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         name: file.name,
@@ -113,32 +113,54 @@ export function DocumentUploadInterface() {
       }
 
       setDocuments((prev) => [newDoc, ...prev])
-      setUploadProgress((prev) => ({ ...prev, [newDoc.id]: 0 }))
+      setUploadProgress((prev) => ({ ...prev, [newDoc.id]: 10 }))
 
-      // Simulate upload progress
-      const interval = setInterval(() => {
-        setUploadProgress((prev) => {
-          const currentProgress = prev[newDoc.id] || 0
-          if (currentProgress >= 100) {
-            clearInterval(interval)
-            setDocuments((docs) =>
-              docs.map((doc) =>
-                doc.id === newDoc.id
-                  ? {
-                      ...doc,
-                      status: "completed",
-                      category: "General",
-                      analysis:
-                        "Document uploaded successfully. AI analysis completed with key insights and recommendations.",
-                    }
-                  : doc,
-              ),
-            )
-            return prev
-          }
-          return { ...prev, [newDoc.id]: currentProgress + 10 }
+      // Real upload to Next.js proxy -> backend
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        // Optional: pass a short description or goal
+        form.append('description', 'Analyze and suggest legal improvements')
+
+        const res = await fetch('/api/analyze-document', {
+          method: 'POST',
+          body: form,
         })
-      }, 200)
+
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data?.success) {
+          throw new Error(data?.detail || data?.error || `Upload failed (${res.status})`)
+        }
+
+        const advice = data.advice || {}
+        const adviceSummary: string = advice.summary || 'Analysis complete.'
+        const improvements: string[] = Array.isArray(advice.improvements) ? advice.improvements : []
+        const issues: string[] = Array.isArray(advice.issues) ? advice.issues : []
+
+        setUploadProgress((prev) => ({ ...prev, [newDoc.id]: 100 }))
+        setDocuments((docs) =>
+          docs.map((doc) =>
+            doc.id === newDoc.id
+              ? {
+                  ...doc,
+                  status: 'completed',
+                  category: 'Analyzed',
+                  analysis: [adviceSummary, ...improvements.map((i: string) => `• ${i}`), ...issues.map((i: string) => `! ${i}`)]
+                    .filter(Boolean)
+                    .join('\n'),
+                }
+              : doc,
+          ),
+        )
+      } catch (e: any) {
+        setDocuments((docs) =>
+          docs.map((doc) =>
+            doc.id === newDoc.id
+              ? { ...doc, status: 'error', analysis: e?.message || 'Upload failed' }
+              : doc,
+          ),
+        )
+      }
     })
   }
 
