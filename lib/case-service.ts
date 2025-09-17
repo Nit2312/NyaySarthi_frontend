@@ -82,8 +82,8 @@ export class CaseService {
     
     // Create the request promise
     const requestPromise = (async (): Promise<CaseDetailsResponse> => {
-      const endpoint = `${this.API_BASE}${API_CONFIG.ENDPOINTS.CASES_DETAILS}`;
-      const url = new URL(endpoint);
+      // Use Next.js API proxy route to reach the backend
+      const endpoint = `/api${API_CONFIG.ENDPOINTS.CASES_DETAILS}`;
       const formData = new URLSearchParams();
       
       // Use the correct parameter name that the backend expects
@@ -104,14 +104,14 @@ export class CaseService {
       
       try {
         const startTime = performance.now();
-        console.log(`[CaseService] Making request to: ${url.toString()}`);
+        console.log(`[CaseService] Making request to: ${endpoint}`);
         console.log(`[CaseService] Request data:`, {
           docId: docId ? `${docId.substring(0, 4)}...` : 'none',
           hasDescription: !!trimmedDesc,
-          endpoint: url.toString()
+          endpoint
         });
 
-        const response = await fetch(url.toString(), {
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
