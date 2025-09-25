@@ -301,6 +301,7 @@ class ApiService {
   static async sendChatMessage(
     message: string,
     conversationId: string,
+    options?: { prefer?: string },
     signal?: AbortSignal
   ): Promise<{
     response: string;
@@ -321,6 +322,7 @@ class ApiService {
         body: new URLSearchParams({
           input: message,
           conversation_id: conversationId,
+          ...(options?.prefer ? { prefer: options.prefer } : {}),
         }),
         signal,
       });
