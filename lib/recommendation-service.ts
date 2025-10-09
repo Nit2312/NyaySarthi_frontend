@@ -1,4 +1,4 @@
-import { CaseDoc } from "./api-service"
+import { CaseDoc } from "./types/case"
 
 export interface SearchPattern {
   query: string
@@ -258,7 +258,11 @@ class RecommendationService {
   }
 
   private static extractCourts(results: CaseDoc[]): string[] {
-    return [...new Set(results.map(r => r.court).filter(Boolean))]
+    // Filter out undefined/null courts and ensure the return type is string[]
+    const courts = results
+      .map(r => r.court)
+      .filter((c): c is string => typeof c === 'string' && c.length > 0)
+    return [...new Set(courts)]
   }
 
   private static getCategoryBasedRecommendations(preferences: UserPreference): Recommendation[] {
@@ -372,7 +376,7 @@ class RecommendationService {
   }
 
   private static generateSmartCompletions(query: string, preferences: UserPreference): string[] {
-    const completions = []
+  const completions: string[] = []
     const queryLower = query.toLowerCase()
 
     // Category-based completions

@@ -65,6 +65,11 @@ interface UserData {
 
 interface UserDataContextType {
   userData: UserData
+  // Convenience top-level accessors used by UI components
+  chatSessions: ChatSession[]
+  documents: UploadedDocument[]
+  searchHistory: SearchHistory[]
+  activities: UserActivity[]
   addChatSession: (session: ChatSession) => void
   updateChatSession: (sessionId: string, messages: ChatMessage[]) => void
   addUploadedDocument: (document: UploadedDocument) => void
@@ -228,6 +233,11 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
     <UserDataContext.Provider
       value={{
         userData,
+        // convenience accessors for components
+        chatSessions: userData.chatSessions,
+        documents: userData.uploadedDocuments,
+        searchHistory: userData.searchHistory,
+        activities: userData.recentActivity,
         addChatSession,
         updateChatSession,
         addUploadedDocument,

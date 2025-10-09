@@ -17,7 +17,7 @@ function DashboardContent() {
 
   const recentActivities = (activities || []).slice(0, 5)
   const recentChats = (chatSessions || []).slice(0, 3)
-  const recentDocuments = (documents || []).filter((doc) => doc.status === "processed").slice(0, 3)
+  const recentDocuments = (documents || []).filter((doc) => doc.status === "completed").slice(0, 3)
 
   return (
     <div className="space-y-8">
@@ -92,7 +92,7 @@ function DashboardContent() {
                 <div className="w-2 h-2 bg-white rounded-full glow-subtle" />
                 <div className="flex-1">
                   <p className="text-white font-medium">{activity.description}</p>
-                  <p className="text-white/60 text-sm">{activity.timestamp}</p>
+                  <p className="text-white/60 text-sm">{activity.timestamp ? new Date(activity.timestamp).toLocaleString() : ''}</p>
                 </div>
               </div>
             ))}
@@ -115,7 +115,7 @@ function DashboardContent() {
                   <Badge variant="outline" className="text-xs">
                     {chat.messages.length} {language === "en" ? "messages" : "संदेश"}
                   </Badge>
-                  <span className="text-white/60 text-sm">{chat.createdAt}</span>
+                  <span className="text-white/60 text-sm">{chat.createdAt ? new Date(chat.createdAt).toLocaleString() : ''}</span>
                 </div>
               </div>
             ))}
@@ -143,7 +143,7 @@ function DashboardContent() {
                   <Badge variant="secondary" className="text-xs">
                     {doc.type.toUpperCase()}
                   </Badge>
-                  <span className="text-white/60 text-sm">{doc.uploadedAt}</span>
+                  <span className="text-white/60 text-sm">{doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : ''}</span>
                 </div>
               </div>
             ))}

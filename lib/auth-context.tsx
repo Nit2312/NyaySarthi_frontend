@@ -11,6 +11,8 @@ interface AppUser {
   id: string
   name: string
   email: string
+  // Optional role (e.g., 'lawyer', 'judge', 'citizen') used by the UI
+  role?: 'lawyer' | 'judge' | 'citizen' | string
 }
 
 interface AuthContextType {
