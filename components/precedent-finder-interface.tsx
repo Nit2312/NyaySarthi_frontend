@@ -19,6 +19,7 @@ import { SearchLoading } from "@/components/ui/loading"
 import { CaseCard } from "@/components/case-card"
 import RecommendationService, { type Recommendation } from "@/lib/recommendation-service"
 import useSpeech from "@/hooks/use-speech"
+import { API_CONFIG } from "@/lib/config"
 
 interface SearchResultCase {
   id: string
@@ -60,6 +61,13 @@ export function PrecedentFinderInterface() {
   const [loadingTimer, setLoadingTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
   const [selectedFilters, setSelectedFilters] = useState<string[]>([])
   const [searchResults, setSearchResults] = useState<PrecedentCase[]>([])
+  // In-memory cache for search results to avoid repeat calls for identical queries (5 min TTL)
+  const SEARCH_CACHE_TTL = 5 * 60 * 1000
+  const searchCacheRef = (globalThis as any).__NYAY_SEARCH_CACHE__ || new Map<string, { data: SearchResult; timestamp: number }>()
+  ;(globalThis as any).__NYAY_SEARCH_CACHE__ = searchCacheRef
+  // Keep a reference to the last request controller to cancel in-flight requests
+  const lastControllerRef = (globalThis as any).__NYAY_SEARCH_ABORT__ || { controller: null as AbortController | null }
+  ;(globalThis as any).__NYAY_SEARCH_ABORT__ = lastControllerRef
 
   useEffect(() => {
     // Load search results from session storage after component mounts
@@ -327,35 +335,86 @@ export function PrecedentFinderInterface() {
         .replace(/\s+/g, ' ')       // Replace multiple spaces with single space
         .trim()
 
-      // Add a small delay to show loading state and prevent UI flicker
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // 1) Serve instantly from in-memory cache if fresh
+      const cacheKey = optimizedQuery
+      const cached = searchCacheRef.get(cacheKey)
+      if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+        const cachedResult = cached.data
+        if (cachedResult.success && Array.isArray(cachedResult.cases)) {
+          const validCases = cachedResult.cases
+            .filter((caseDoc: any) => caseDoc?.id && caseDoc?.title)
+            .map((caseDoc: any) => ({
+              ...caseDoc,
+              title: caseDoc.title || 'Untitled Case',
+              id: caseDoc.id || `case-${Math.random().toString(36).substr(2, 9)}`,
+              court: caseDoc.court || 'Court not specified',
+              date: caseDoc.date || 'Date not available',
+              citation: caseDoc.citation || 'Citation not available',
+              summary: caseDoc.summary || 'No summary available',
+              relevanceScore: caseDoc.relevanceScore || 0
+            }))
+          const sortedCases = [...validCases].sort((a, b) => {
+            if (a.relevanceScore !== undefined && b.relevanceScore !== undefined) {
+              return (b.relevanceScore || 0) - (a.relevanceScore || 0)
+            }
+            return (a.title || '').localeCompare(b.title || '')
+          })
+          setSearchResults(sortedCases)
+          setSearchError('')
+          saveSearchHistory(query, sortedCases)
+          setIkDiag(`Found ${sortedCases.length} matching case${sortedCases.length !== 1 ? 's' : ''}`)
+          return
+        }
+      }
 
-      // Make the actual API request to the backend
-      let response: Response;
+      // 2) Make the actual API request via Next.js API proxy with timeout and abort support
+      let response: Response
+      const endpoint = `/api${API_CONFIG.ENDPOINTS.CASES_SEARCH}`
+      // Abort any in-flight request for previous searches
+      if (lastControllerRef.controller) {
+        try { lastControllerRef.controller.abort() } catch {}
+      }
+      const controller = new AbortController()
+      lastControllerRef.controller = controller
+      const timeoutMs = API_CONFIG.TIMEOUT || 30000
+      const timeout = setTimeout(() => {
+        try { controller.abort() } catch {}
+      }, timeoutMs)
       try {
-        response = await fetch('http://localhost:8000/cases/search', {
+        response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
           },
           body: new URLSearchParams({
             input: optimizedQuery,
             limit: '5'
-          })
-        });
-
+          }),
+          signal: controller.signal,
+        })
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
       } catch (fetchError) {
-        // If the backend is not available, show a helpful error message
-        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
-          throw new Error('Unable to connect to the search service. Please make sure the backend server is running on http://localhost:8000');
+        if ((fetchError as any)?.name === 'AbortError') {
+          throw new Error('The search request timed out. Please try again.')
         }
-        throw fetchError;
+        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+          throw new Error('Unable to connect to the search service. Please make sure the backend server is running and reachable.')
+        }
+        throw fetchError
+      } finally {
+        clearTimeout(timeout)
+        // Clear if this controller is the last one we stored
+        if (lastControllerRef.controller === controller) {
+          lastControllerRef.controller = null
+        }
       }
 
-      const searchResult: SearchResult = await response.json();
+      const searchResult: SearchResult = await response.json()
+      // Save to cache
+      try { searchCacheRef.set(cacheKey, { data: searchResult, timestamp: Date.now() }) } catch {}
       
       if (loadingTimer) {
         // Clear the timeout and reset the timer
