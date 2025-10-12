@@ -340,6 +340,49 @@ class ApiService {
       throw error;
     }
   }
+
+  /**
+   * Send a message to the agentic chat endpoint which can call constitution and case tools
+   */
+  static async sendAgenticMessage(
+    message: string,
+    conversationId?: string,
+    options?: { prefer?: string },
+    signal?: AbortSignal
+  ): Promise<{
+    response: string;
+    route?: string;
+    graph?: boolean;
+    conversation_id?: string;
+  }> {
+    const requestId = `agentic-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
+    const url = `${API_BASE_URL}/agentic/chat`
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          input: message,
+          ...(conversationId ? { conversation_id: conversationId } : {}),
+          ...(options?.prefer ? { prefer: options.prefer } : {}),
+        }),
+        signal,
+      })
+
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({} as any))
+        throw new Error(errorData.detail || `HTTP error! status: ${resp.status}`)
+      }
+
+      return await resp.json()
+    } catch (error) {
+      console.error(`[${requestId}] Error sending agentic chat message:`, error)
+      throw error
+    }
+  }
 }
 
 export { ApiService };

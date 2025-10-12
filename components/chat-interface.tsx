@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Send, Scale, User, ArrowLeft, Mic, Paperclip, Sparkles, Zap, Shield, AlertCircle } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
-import { getEnhancedLegalResponse } from "@/lib/indian-legal-context"
+import { ApiService } from "@/lib/api-service"
 import { useLoading } from "@/hooks/use-loading"
 import { useDebounce } from "@/hooks/use-debounce"
 import Link from "next/link"
@@ -25,19 +25,28 @@ interface Message {
   language?: "en" | "hi"
 }
 
+type ThreadMeta = {
+  id: string
+  title: string
+  lastMessage: string
+  updatedAt: number
+}
+
 
 
 export function ChatInterface() {
   const { t, language } = useLanguage()
   const { isLoading, withLoading } = useLoading()
   
-  // Prevent scrolling on mount
+  // Prevent scrolling on mount (page-level)
   useEffect(() => {
+    const prevHtml = document.documentElement.style.overflow
+    const prevBody = document.body.style.overflow
     document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
     return () => {
-      document.documentElement.style.overflow = ''
-      document.body.style.overflow = ''
+      document.documentElement.style.overflow = prevHtml
+      document.body.style.overflow = prevBody
     }
   }, [])
   
@@ -53,6 +62,11 @@ export function ChatInterface() {
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [conversationId, setConversationId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('conversationId') || '' : ''))
+  const [threads, setThreads] = useState<ThreadMeta[]>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('chatThreads') || '[]') as ThreadMeta[] } catch { return [] }
+  })
 
   // Control body overflow
   useEffect(() => {
@@ -114,20 +128,60 @@ export function ChatInterface() {
 
     await withLoading(async () => {
       try {
-        // Simulate AI response with better error handling
+        // Heuristic prefer hint for backend
+        const q = currentInput.toLowerCase()
+        const prefer = /\b(article|अनुच्छेद)\b/.test(q)
+          ? 'constitution'
+          : /(\bv\.?s?\.?\b| vs |citation|holding|ratio|judgment)/i.test(currentInput)
+          ? 'cases'
+          : undefined
+
+        // Ensure conversation id
+        let convId = conversationId
+        if (!convId) {
+          convId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`
+          setConversationId(convId)
+          if (typeof window !== 'undefined') localStorage.setItem('conversationId', convId)
+        }
+
+        const resp = await ApiService.sendAgenticMessage(currentInput, convId, prefer ? { prefer } : undefined)
+        const content = resp.response || ""
         const aiResponse: Message = {
           id: (Date.now() + 1).toString(),
-          content: getEnhancedLegalResponse(currentInput, language),
+          content,
           sender: "ai",
           timestamp: new Date(),
         }
-        setMessages((prev) => [...prev, aiResponse])
+        setMessages((prev) => {
+          const next = [...prev, aiResponse]
+          // persist messages per conversation
+          try {
+            const serializable = next.map(m => ({...m, timestamp: m.timestamp.toISOString()}))
+            localStorage.setItem(`chatHistory:${convId}`, JSON.stringify(serializable))
+          } catch {}
+          // update thread meta
+          try {
+            const title = next.find(m => m.sender === 'user')?.content?.slice(0, 50) || 'New Chat'
+            const lastMessage = aiResponse.content.slice(0, 90)
+            const updatedAt = Date.now()
+            const existing = threads.find(t => t.id === convId)
+            let updated: ThreadMeta[]
+            if (existing) {
+              updated = threads.map(t => t.id === convId ? {...t, title, lastMessage, updatedAt} : t)
+            } else {
+              updated = [{ id: convId, title, lastMessage, updatedAt }, ...threads]
+            }
+            setThreads(updated)
+            localStorage.setItem('chatThreads', JSON.stringify(updated))
+          } catch {}
+          return next
+        })
       } catch (err) {
         setError("Failed to get response. Please try again.")
         console.error("Chat error:", err)
       }
     })
-  }, [inputValue, isLoading, language, withLoading])
+  }, [inputValue, isLoading, language, withLoading, conversationId, threads])
 
   const handleQuickQuestion = (question: string) => {
     setInputValue(question)
@@ -142,107 +196,134 @@ export function ChatInterface() {
   }
 
   return (
-        <div className="fixed inset-0 flex items-center justify-center overflow-hidden">
-      {/* Background with gradient and pattern */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/20 to-background">
-        <div
-          className="absolute inset-0 opacity-[0.01]"
-          style={{
-            backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`,
-            backgroundSize: "40px 40px",
-          }}
-        />
-      </div>
-
-      {/* Main container - fixed width, full height */}
-      <div className="relative w-full h-full max-w-5xl mx-auto flex flex-col z-10">
-        {/* Header (keeps title and back button) */}
-        <div className="glass-ultra rounded-t-3xl px-4 floating-element glow-medium border border-white/20 h-16 flex items-center shrink-0">
-          <div className="flex items-center justify-start">
-            <Link href="/">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="glass-strong glow-subtle hover:glow-medium transition-all duration-300"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-            </Link>
-            <h2 className="ml-4 text-lg font-semibold">Chat Assistant</h2>
+    <div className="fixed inset-0 w-full overflow-hidden bg-background">
+      <div className="h-full w-full overflow-hidden flex justify-center items-start">
+        <div className="h-full w-full max-w-[1600px] grid grid-cols-1 7md:grid-cols-[280px_1fr] transform origin-top scale-[0.2] md:scale-[0.2] lg:scale-[0.2] xl:scale-50">
+        {/* Sidebar (md+) */}
+        <aside className="hidden md:flex flex-col border-r bg-muted/20">
+          <div className="p-3 border-b sticky top-0 bg-muted/30 backdrop-blur">
+            <div className="flex items-center gap-2">
+              <Scale className="w-5 h-5" />
+              <span className="font-semibold">{language === 'en' ? 'Recent Chats' : 'हाल की चैट'}</span>
+            </div>
+            <Button
+              onClick={() => {
+                // start new conversation
+                const newId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`
+                setConversationId(newId)
+                localStorage.setItem('conversationId', newId)
+                setMessages([
+                  { id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() },
+                ])
+                try { localStorage.removeItem(`chatHistory:${newId}`) } catch {}
+              }}
+              className="w-full mt-3" size="sm">
+              + {language === 'en' ? 'New Chat' : 'नई चैट'}
+            </Button>
           </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {threads.length === 0 ? (
+              <div className="mt-8 text-center text-sm text-muted-foreground">
+                <p>{language === 'en' ? 'No chats yet.' : 'अभी कोई चैट नहीं।'}</p>
+                <p>{language === 'en' ? 'Start a new chat to see it here.' : 'नई चैट शुरू करें।'}</p>
+              </div>
+            ) : (
+              threads
+                .sort((a,b) => b.updatedAt - a.updatedAt)
+                .map(th => (
+                  <button
+                    key={th.id}
+                    onClick={() => {
+                      setConversationId(th.id)
+                      localStorage.setItem('conversationId', th.id)
+                      try {
+                        const raw = localStorage.getItem(`chatHistory:${th.id}`)
+                        if (raw) {
+                          const parsed = JSON.parse(raw) as Array<Omit<Message,'timestamp'> & {timestamp: string}>
+                          const restored: Message[] = parsed.map(p => ({...p, timestamp: new Date(p.timestamp)}))
+                          setMessages(restored)
+                        } else {
+                          setMessages([{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
+                        }
+                      } catch {
+                        setMessages([{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
+                      }
+                    }}
+                    className="w-full text-left rounded-lg p-3 hover:bg-muted/50 transition border">
+                    <div className="font-medium truncate">{th.title || (language==='en'?'New Chat':'नई चैट')}</div>
+                    <div className="text-xs text-muted-foreground truncate">{th.lastMessage}</div>
+                  </button>
+                ))
+            )}
+          </div>
+        </aside>
+
+        {/* Main chat column */}
+        <section className="flex flex-col h-full">
+          {/* Header */}
+          <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Link href="/">
+                  <Button variant="ghost" size="icon" aria-label="Back">
+                    <ArrowLeft className="w-5 h-5" />
+                  </Button>
+                </Link>
+                <span className="font-semibold">{language === 'en' ? 'Chat Assistant' : 'चैट सहायक'}</span>
+              </div>
+              <div className="text-xs text-muted-foreground">{language === 'en' ? 'Grounded in Constitution + Cases' : 'संविधान + नज़ीर आधारित'}</div>
+            </div>
+          </header>
+
+          {/* Messages */}
+          <main className="flex-1 min-h-0">
+            <div className="h-full max-w-3xl mx-auto px-4">
+              <ChatMessagesArea messages={messages} isLoading={isLoading} error={error} className="pt-4" />
+            </div>
+          </main>
+
+          {/* Input */}
+          <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="max-w-3xl mx-auto px-4 py-3">
+              <div className="relative flex items-center gap-2">
+                <Input
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder={language === 'en' ? 'Ask about Indian law…' : 'भारतीय कानून के बारे में पूछें…'}
+                  className="pr-28 py-3 text-base"
+                  disabled={isLoading}
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                  <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Attach">
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => (listening ? stopListening() : startListening())}
+                    aria-pressed={listening}
+                    aria-label="Voice input"
+                    className={`h-9 w-9 ${listening ? 'bg-primary/10' : ''}`}
+                    title={sttSupported ? (listening ? 'Stop voice input' : 'Start voice input') : 'Voice input not supported'}
+                  >
+                    <Mic className={`w-4 h-4 ${listening ? 'animate-pulse text-primary' : ''}`} />
+                  </Button>
+                  <Button onClick={handleSendMessage} disabled={!inputValue.trim() || isLoading} className="h-9 w-9 p-0">
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground text-center">
+                {language === 'en'
+                  ? 'Nyay Sarthi provides general legal information. Consult a qualified lawyer for specific advice.'
+                  : 'न्याय सारथी सामान्य कानूनी जानकारी प्रदान करता है। विशिष्ट सलाह के लिए योग्य वकील से परामर्श करें.'}
+              </p>
+            </div>
+          </footer>
+        </section>
         </div>
-
-        {/* Main card: messages take available space; input stays fixed at bottom */}
-  <Card className="glass-ultra border-x border-white/20 border-t-0 rounded-none glow-medium flex-1 min-h-0 flex flex-col h-[calc(100vh-4rem)]">
-            {/* Card header: includes quick questions and the message input so header+search stay together */}
-            <div className="glass-ultra border-b border-white/10 p-4 sticky top-0 z-20">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Zap className="w-5 h-5 text-accent" />
-                  <h3 className="text-sm font-bold text-premium">{language === "en" ? "Quick Legal Questions:" : "त्वरित कानूनी प्रश्न:"}</h3>
-                </div>
-                <div className="flex-1 ml-4">
-                  <div className="relative">
-                    <Input
-                      ref={inputRef}
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
-                      className="glass-strong border-white/20 pr-28 py-3 text-base font-medium glow-subtle focus:glow-medium transition-all duration-300"
-                      disabled={isLoading}
-                    />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 w-9 p-0 glass glow-subtle hover:glow-medium transition-all"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => (listening ? stopListening() : startListening())}
-                        aria-pressed={listening}
-                        title={sttSupported ? (listening ? "Stop voice input" : "Start voice input") : "Voice input not supported in this browser"}
-                        className={`h-9 w-9 p-0 glass ${listening ? "bg-primary/20" : ""} glow-subtle hover:glow-medium transition-all`}
-                      >
-                        <Mic className={`w-4 h-4 ${listening ? "animate-pulse text-primary" : ""}`} />
-                      </Button>
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={!inputValue.trim() || isLoading}
-                        className="h-9 w-9 p-0 glass-strong glow-medium hover:glow-strong transition-all duration-300 group"
-                      >
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 flex gap-2 overflow-x-auto">
-                <button onClick={() => handleQuickQuestion('What are the steps to file a consumer complaint?')} className="badge">Consumer rights</button>
-                <button onClick={() => handleQuickQuestion('How to get bail in criminal cases?')} className="badge">Bail procedure</button>
-                <button onClick={() => handleQuickQuestion('How much is compensation for motor accident?')} className="badge">Motor accident</button>
-              </div>
-            </div>
-
-            {/* Messages area - scrollable */}
-            <ChatMessagesArea messages={messages} isLoading={isLoading} error={error} />
-
-            {/* Footer disclaimer */}
-            <div className="p-3 border-t border-white/10 text-center">
-              <div className="flex items-center justify-center gap-2">
-                <Shield className="w-4 h-4 text-accent" />
-                <p className="text-xs text-muted-foreground text-center font-medium">
-                  {language === "en"
-                    ? "Nyay Sarthi provides general legal information based on Indian law. Consult a qualified lawyer for specific legal advice."
-                    : "न्याय सारथी भारतीय कानून के आधार पर सामान्य कानूनी जानकारी प्रदान करता है। विशिष्ट कानूनी सलाह के लिए एक योग्य वकील से सलाह लें।"}
-                </p>
-              </div>
-            </div>
-        </Card>
       </div>
     </div>
   )

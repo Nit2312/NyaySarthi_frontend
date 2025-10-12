@@ -24,41 +24,18 @@ interface Message {
   saved?: boolean
 }
 
-const recentChats = [
-  {
-    id: "1",
-    title: "Property dispute resolution",
-    titleHi: "संपत्ति विवाद समाधान",
-    lastMessage: "Thank you for the detailed explanation about property laws...",
-    lastMessageHi: "संपत्ति कानूनों के बारे में विस्तृत व्याख्या के लिए धन्यवाद...",
-    timestamp: "2 hours ago",
-    timestampHi: "2 घंटे पहले",
-    category: "Property Law",
-    categoryHi: "संपत्ति कानून",
-  },
-  {
-    id: "2",
-    title: "Consumer rights inquiry",
-    titleHi: "उपभोक्ता अधिकार पूछताछ",
-    lastMessage: "What are the steps to file a consumer complaint?",
-    lastMessageHi: "उपभोक्ता शिकायत दर्ज करने के चरण क्या हैं?",
-    timestamp: "1 day ago",
-    timestampHi: "1 दिन पहले",
-    category: "Consumer Law",
-    categoryHi: "उपभोक्ता कानून",
-  },
-  {
-    id: "3",
-    title: "Employment termination",
-    titleHi: "रोजगार समाप्ति",
-    lastMessage: "Can my employer terminate me without notice?",
-    lastMessageHi: "क्या मेरा नियोक्ता बिना नोटिस के मुझे समाप्त कर सकता है?",
-    timestamp: "3 days ago",
-    timestampHi: "3 दिन पहले",
-    category: "Employment Law",
-    categoryHi: "रोजगार कानून",
-  },
-]
+type ThreadMeta = {
+  id: string
+  title: string
+  lastMessage: string
+  updatedAt: number
+}
+
+// Persistent threads (localStorage-backed)
+const loadThreads = (): ThreadMeta[] => {
+  if (typeof window === 'undefined') return []
+  try { return JSON.parse(localStorage.getItem('chatThreads') || '[]') as ThreadMeta[] } catch { return [] }
+}
 
 export function DashboardChatInterface() {
   const { t, language } = useLanguage()
@@ -82,6 +59,7 @@ export function DashboardChatInterface() {
   const [conversationId, setConversationId] = useState<string>(
     () => (typeof window !== 'undefined' ? localStorage.getItem('conversationId') || '' : '')
   )
+  const [threads, setThreads] = useState<ThreadMeta[]>(() => loadThreads())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -216,7 +194,30 @@ export function DashboardChatInterface() {
           timestamp: new Date(),
           category: "Legal Advice",
         }
-        setMessages((prev) => [...prev, aiResponse])
+        setMessages((prev) => {
+          const next = [...prev, aiResponse]
+          // persist messages per conversation
+          try {
+            const serializable = next.map(m => ({...m, timestamp: m.timestamp.toISOString()}))
+            localStorage.setItem(`chatHistory:${convId}`, JSON.stringify(serializable))
+          } catch {}
+          // update threads meta
+          try {
+            const title = next.find(m => m.sender === 'user')?.content?.slice(0, 50) || (language === 'en' ? 'New Chat' : 'नई चैट')
+            const lastMessage = content.slice(0, 90)
+            const updatedAt = Date.now()
+            const existing = threads.find(t => t.id === convId)
+            let updated: ThreadMeta[]
+            if (existing) {
+              updated = threads.map(t => t.id === convId ? {...t, title, lastMessage, updatedAt} : t)
+            } else {
+              updated = [{ id: convId, title, lastMessage, updatedAt }, ...threads]
+            }
+            setThreads(updated)
+            localStorage.setItem('chatThreads', JSON.stringify(updated))
+          } catch {}
+          return next
+        })
       }
       // Update conv id from backend if provided
       if (response.conversation_id && response.conversation_id !== conversationId) {
@@ -252,10 +253,8 @@ export function DashboardChatInterface() {
 
   const loadPreviousChat = useCallback((chatId: string) => {
     setActiveChat(chatId)
-    // Switch the conversation id to match selected chat thread
     setConversationId(chatId)
     if (typeof window !== 'undefined') localStorage.setItem('conversationId', chatId)
-    // Try to load stored messages for this chat
     if (typeof window !== 'undefined') {
       const raw = localStorage.getItem(`chatHistory:${chatId}`)
       if (raw) {
@@ -267,27 +266,17 @@ export function DashboardChatInterface() {
         } catch {}
       }
     }
-    // Fallback to example content if no stored history
-    const chat = recentChats.find((c) => c.id === chatId)
-    if (chat) {
-      setMessages([
-        {
-          id: "prev-1",
-          content: language === "en" ? chat.lastMessage : chat.lastMessageHi,
-          sender: "user",
-          timestamp: new Date(Date.now() - 86400000),
-        },
-        {
-          id: "prev-2",
-          content: language === "en" 
-            ? "I can help you with that. Let me provide you with detailed information about this legal matter."
-            : "मैं आपकी इसमें मदद कर सकता हूं। मुझे आपको इस कानूनी मामले के बारे में विस्तृत जानकारी प्रदान करने दें।",
-          sender: "ai",
-          timestamp: new Date(Date.now() - 86400000 + 60000),
-          category: language === "en" ? chat.category : chat.categoryHi,
-        },
-      ])
-    }
+    setMessages([
+      {
+        id: "new-1",
+        content:
+          language === "en"
+            ? `Hello! I'm your AI legal assistant. How can I help you with Indian law today?`
+            : `नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`,
+        sender: "ai",
+        timestamp: new Date(),
+      },
+    ])
   }, [language])
 
   const toggleSidebar = useCallback(() => {
@@ -315,6 +304,12 @@ export function DashboardChatInterface() {
     if (typeof window !== 'undefined') {
       try { localStorage.removeItem(`chatHistory:${newId}`) } catch {}
     }
+    // Add empty thread meta
+    try {
+      const updated: ThreadMeta[] = [{ id: newId, title: language==='en' ? 'New Chat' : 'नई चैट', lastMessage: '', updatedAt: Date.now() }, ...threads]
+      setThreads(updated)
+      localStorage.setItem('chatThreads', JSON.stringify(updated))
+    } catch {}
   }, [language])
 
   const handleFileUpload = useCallback(() => {
@@ -388,44 +383,47 @@ export function DashboardChatInterface() {
                 {language === "en" ? "New Chat" : "नई चैट"}
               </Button>
             )}
-            
-            {recentChats.map((chat) => (
-              <div
-                key={chat.id}
-                onClick={() => loadPreviousChat(chat.id)}
-                className={`rounded-xl cursor-pointer transition-all duration-300 ${
-                  activeChat === chat.id ? "glass-strong glow-medium" : "glass hover:glass-strong hover:glow-subtle"
-                } ${sidebarCollapsed ? 'p-2' : 'p-3'}`}
-              >
-                {sidebarCollapsed ? (
-                  <div className="flex flex-col items-center space-y-1">
-                    <MessageSquare className={`w-4 h-4 transition-all duration-300 ${
-                      activeChat === chat.id 
-                        ? "text-primary glow-medium" 
-                        : "text-white/70 hover:text-white"
-                    }`} />
-                    {activeChat === chat.id && (
-                      <div className="w-1 h-1 bg-accent rounded-full animate-pulse"></div>
+            {threads.length === 0 ? (
+              <div className="text-xs text-muted-foreground">
+                {language === 'en' ? 'No chats yet. Start a new chat.' : 'अभी कोई चैट नहीं। नई चैट शुरू करें।'}
+              </div>
+            ) : (
+              threads
+                .sort((a,b) => b.updatedAt - a.updatedAt)
+                .map((chat) => (
+                  <div
+                    key={chat.id}
+                    onClick={() => loadPreviousChat(chat.id)}
+                    className={`rounded-xl cursor-pointer transition-all duration-300 ${
+                      activeChat === chat.id ? "glass-strong glow-medium" : "glass hover:glass-strong hover:glow-subtle"
+                    } ${sidebarCollapsed ? 'p-2' : 'p-3'}`}
+                  >
+                    {sidebarCollapsed ? (
+                      <div className="flex flex-col items-center space-y-1">
+                        <MessageSquare className={`w-4 h-4 transition-all duration-300 ${
+                          activeChat === chat.id 
+                            ? "text-primary glow-medium" 
+                            : "text-white/70 hover:text-white"
+                        }`} />
+                        {activeChat === chat.id && (
+                          <div className="w-1 h-1 bg-accent rounded-full animate-pulse"></div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between mb-2">
+                          <h4 className="font-medium text-sm text-premium truncate">
+                            {chat.title}
+                          </h4>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                          {chat.lastMessage}
+                        </p>
+                      </>
                     )}
                   </div>
-                ) : (
-                  <>
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-medium text-sm text-premium truncate">
-                        {language === "en" ? chat.title : chat.titleHi}
-                      </h4>
-                      <Badge variant="outline" className="text-xs glass border-white/20">
-                        {language === "en" ? chat.category : chat.categoryHi}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                      {language === "en" ? chat.lastMessage : chat.lastMessageHi}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{language === "en" ? chat.timestamp : chat.timestampHi}</p>
-                  </>
-                )}
-              </div>
-            ))}
+                ))
+            )}
           </CardContent>
         </Card>
       </div>
