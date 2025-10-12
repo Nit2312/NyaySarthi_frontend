@@ -49,16 +49,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const init = async () => {
-      const { data } = await supabase.auth.getSession()
-      const s = data.session
-      if (s?.user) {
-        const u = s.user
-        const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
-        setUser({ id: u.id, name: profileName, email: u.email || "" })
-        // Ensure profile row exists on load
-        await ensureProfile(u)
+      try {
+        const { data } = await supabase.auth.getSession()
+        const s = data.session
+        if (s?.user) {
+          const u = s.user
+          const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
+          setUser({ id: u.id, name: profileName, email: u.email || "" })
+          // Ensure profile row exists on load
+          await ensureProfile(u)
+        }
+      } catch (err: any) {
+        // If Supabase attempts a refresh but there is no refresh token available
+        // the library can throw an AuthApiError. Detect common signs and recover
+        // by forcing a client-side sign out and clearing user state.
+        // Also add lightweight, non-sensitive instrumentation to help debug
+        // whether the storage keys exist (do NOT log actual tokens).
+        let storageInfo = { local: false, session: false }
+        try {
+          storageInfo.local = !!localStorage.getItem('supabase.auth.token')
+        } catch (_) {
+          // accessing localStorage may throw in some environments
+        }
+        try {
+          storageInfo.session = !!sessionStorage.getItem('supabase.auth.token')
+        } catch (_) {
+          // accessing sessionStorage may throw in some environments
+        }
+        console.warn('Auth init error', { err, storageInfo })
+        try {
+          await supabase.auth.signOut()
+        } catch (_e) {
+          // ignore
+        }
+        setUser(null)
+      } finally {
+        setIsLoading(false)
       }
-      setIsLoading(false)
     }
     init()
 
@@ -66,13 +93,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       _event: AuthChangeEvent,
       session: Session | null,
     ) => {
-      if (session?.user) {
-        const u = session.user
-        const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
-        setUser({ id: u.id, name: profileName, email: u.email || "" })
-        // Ensure profile row exists after auth changes (login/signup)
-        ensureProfile(u)
-      } else {
+      try {
+        if (session?.user) {
+          const u = session.user
+          const profileName = (u.user_metadata as any)?.name || u.email?.split("@")[0] || "User"
+          setUser({ id: u.id, name: profileName, email: u.email || "" })
+          // Ensure profile row exists after auth changes (login/signup)
+          ensureProfile(u)
+        } else {
+          setUser(null)
+        }
+      } catch (err: any) {
+        // Add lightweight storage presence info to help debug missing-token errors
+        let storageInfo = { local: false, session: false }
+        try {
+          storageInfo.local = !!localStorage.getItem('supabase.auth.token')
+        } catch (_) {
+          // ignore
+        }
+        try {
+          storageInfo.session = !!sessionStorage.getItem('supabase.auth.token')
+        } catch (_) {
+          // ignore
+        }
+        console.warn('Auth state change handler error', { err, storageInfo })
+        // If we hit an auth-related error (e.g., missing refresh token), force sign-out
+        supabase.auth.signOut().catch(() => {})
         setUser(null)
       }
     })

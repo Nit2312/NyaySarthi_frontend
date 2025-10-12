@@ -11,4 +11,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// configure auth options to avoid automatic refresh attempts when a refresh token
+// is not available (this prevents `Invalid Refresh Token: Refresh Token Not Found` errors
+// originating from the library in environments where localStorage isn't populated yet)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // don't try to automatically refresh tokens without an explicit session
+    autoRefreshToken: false,
+    // still persist session to storage when present
+    persistSession: true,
+    // avoid detecting session params in URL (we handle sign-in flows explicitly)
+    detectSessionInUrl: false,
+  },
+})
