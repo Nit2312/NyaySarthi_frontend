@@ -337,4 +337,34 @@ Need help with specific criminal matter?`
 **Maintenance:**
 • **Wife**: Under Section 125 CrPC or personal laws
 • **Children**: Until age of majority (18 years)
-*** End Patch
+• **Parents**: Under Maintenance and Welfare of Parents and Senior Citizens Act, 2007
+
+Would you like help with marriage registration, divorce, or custody?`
+      : `भारत में पारिवारिक कानून धर्म-आधारित निजी कानूनों और कुछ धर्मनिरपेक्ष कानूनों द्वारा शासित होता है।
+
+**विवाह कानून:**
+• **हिंदू विवाह अधिनियम, 1955**
+• **भारतीय ईसाई विवाह अधिनियम, 1872**
+• **मुस्लिम व्यक्तिगत कानून**
+• **विशेष विवाह अधिनियम, 1954**
+
+**तलाक के आधार (हिंदू विवाह अधिनियम):**
+• व्यभिचार, क्रूरता, 2+ वर्ष का परित्याग, मानसिक विकार आदि
+
+**बच्चों की कस्टडी:**
+• **टेंडर इयर्स सिद्धांत**, **चाइल्ड के सर्वोत्तम हित**
+• **जॉइंट कस्टडी**: आपसी सहमति के मामलों में संभव
+
+**भरण-पोषण:**
+• **पत्नी**: धारा 125 CrPC या व्यक्तिगत कानूनों के तहत
+• **बच्चे**: 18 वर्ष तक
+• **माता-पिता**: वरिष्ठ नागरिक अधिनियम, 2007 के तहत
+
+क्या आप विवाह पंजीकरण, तलाक या कस्टडी में सहायता चाहते हैं?`
+  }
+
+  // Default fallback
+  return language === "en"
+    ? "I can help with Indian legal topics like property, consumer, criminal (FIR), and family law. Please provide more details."
+    : "मैं संपत्ति, उपभोक्ता, आपराधिक (FIR), और पारिवारिक कानून जैसे भारतीय कानूनी विषयों में मदद कर सकता हूँ। कृपया अधिक विवरण साझा करें।"
+}
