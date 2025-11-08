@@ -9,11 +9,55 @@ import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { MessageSquare, Upload, Scale, Clock, TrendingUp, FileText, Users } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { listActiveConversations } from "@/lib/chat-repo"
 
 function DashboardContent() {
   const { t, language } = useLanguage()
   const { user } = useAuth()
   const { chatSessions, documents, searchHistory, activities } = useUserData()
+
+  // Dynamic totals
+  const [chatCount, setChatCount] = useState<number>(0)
+  const [docCount, setDocCount] = useState<number>(0)
+  const [precCount, setPrecCount] = useState<number>(0)
+
+  // Fetch chat count from DB for current user
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!user?.id) return
+        const rows = await listActiveConversations(user.id, 1000)
+        setChatCount((rows as any[]).length || 0)
+      } catch {
+        setChatCount(0)
+      }
+    })()
+  }, [user?.id])
+
+  // Read session/local counters for Documents and Precedent Searches
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const keyDocs = `stats:${user?.id || 'anon'}:docs`
+    const keyPrec = `stats:${user?.id || 'anon'}:precedent`
+    const sync = () => {
+      try {
+        setDocCount(Number(localStorage.getItem(keyDocs) || '0'))
+        setPrecCount(Number(localStorage.getItem(keyPrec) || '0'))
+      } catch {
+        setDocCount(0); setPrecCount(0)
+      }
+    }
+    sync()
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key) return
+      if (e.key === keyDocs || e.key === keyPrec) sync()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [user?.id])
+
+  const totalActivities = useMemo(() => chatCount + docCount + precCount, [chatCount, docCount, precCount])
 
   const recentActivities = (activities || []).slice(0, 5)
   const recentChats = (chatSessions || []).slice(0, 3)
@@ -56,22 +100,22 @@ function DashboardContent() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="glass-subtle rounded-2xl p-6 text-center">
             <MessageSquare className="w-8 h-8 mx-auto mb-3 text-white glow-subtle" />
-            <div className="text-2xl font-bold text-premium glow-text">{(chatSessions || []).length}</div>
+            <div className="text-2xl font-bold text-premium glow-text">{chatCount}</div>
             <div className="text-white/70 text-sm">{language === "en" ? "Chat Sessions" : "चैट सत्र"}</div>
           </div>
           <div className="glass-subtle rounded-2xl p-6 text-center">
             <Upload className="w-8 h-8 mx-auto mb-3 text-white glow-subtle" />
-            <div className="text-2xl font-bold text-premium glow-text">{(documents || []).length}</div>
+            <div className="text-2xl font-bold text-premium glow-text">{docCount}</div>
             <div className="text-white/70 text-sm">{language === "en" ? "Documents" : "दस्तावेज़"}</div>
           </div>
           <div className="glass-subtle rounded-2xl p-6 text-center">
             <Scale className="w-8 h-8 mx-auto mb-3 text-white glow-subtle" />
-            <div className="text-2xl font-bold text-premium glow-text">{(searchHistory || []).length}</div>
+            <div className="text-2xl font-bold text-premium glow-text">{precCount}</div>
             <div className="text-white/70 text-sm">{language === "en" ? "Precedent Searches" : "पूर्व उदाहरण खोज"}</div>
           </div>
           <div className="glass-subtle rounded-2xl p-6 text-center">
             <TrendingUp className="w-8 h-8 mx-auto mb-3 text-white glow-subtle" />
-            <div className="text-2xl font-bold text-premium glow-text">{(activities || []).length}</div>
+            <div className="text-2xl font-bold text-premium glow-text">{totalActivities}</div>
             <div className="text-white/70 text-sm">{language === "en" ? "Total Activities" : "कुल गतिविधियाँ"}</div>
           </div>
         </div>

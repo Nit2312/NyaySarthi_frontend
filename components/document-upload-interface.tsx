@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { useAuth } from "@/lib/auth-context"
+import { incLocalStat } from "@/lib/local-stats"
 
 interface UploadedDocument {
   id: string
@@ -152,6 +153,7 @@ export function DocumentUploadInterface() {
               : doc,
           ),
         )
+        try { incLocalStat(user?.id, 'docs') } catch {}
       } catch (e: any) {
         setDocuments((docs) =>
           docs.map((doc) =>

@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { useLanguage } from "@/lib/language-context"
+import { useAuth } from "@/lib/auth-context"
+import { incLocalStat } from "@/lib/local-stats"
 import { Search, BookOpen, Scale, Calendar, MapPin, User, Download, Eye, Star, Filter, TrendingUp, Clock, Bookmark, BarChart3, SortDesc, GitCompare, Plus, Check, Activity, Mic } from "lucide-react"
 import type { CaseDoc } from "@/lib/types/case"
 import { CaseService } from "@/lib/case-service"
@@ -56,6 +58,7 @@ interface PrecedentCase extends SearchResultCase {
 
 export function PrecedentFinderInterface() {
   const { t } = useLanguage()
+  const { user } = useAuth()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [loadingTimer, setLoadingTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
@@ -544,10 +547,13 @@ export function PrecedentFinderInterface() {
 
       setSearchResults(sortedCases)
       setSearchError('')
-      
+
       // Save search history and results
       saveSearchHistory(query, sortedCases)
-      
+
+      // Increment local/session precedent counter
+      try { incLocalStat(user?.id, 'precedent') } catch {}
+
       // Show success message with result count
       const resultCount = sortedCases.length
       const resultText = `Found ${resultCount} matching case${resultCount !== 1 ? 's' : ''}`

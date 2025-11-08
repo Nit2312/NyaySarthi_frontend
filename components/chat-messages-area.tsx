@@ -49,7 +49,7 @@ export function ChatMessagesArea({
   return (
     <div className={`flex-1 min-h-0 ${className}`}>
       <ScrollArea className="h-full">
-        <div className="px-3 py-6">
+        <div className="px-3 pt-6 pb-28">
           <div className="space-y-6">
             {messages.map((message, idx) => (
               <div
@@ -130,7 +130,10 @@ export function ChatMessagesArea({
             )}
           </div>
         </div>
+        {/* Scroll anchor placed ABOVE spacer so gap remains visible */}
         <div ref={messagesEndRef} />
+        {/* Spacer that creates visible room above the input */}
+        <div className="h-32" aria-hidden />
       </ScrollArea>
     </div>
   )

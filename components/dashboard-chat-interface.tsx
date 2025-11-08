@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Send, Scale, User, Mic, Paperclip, Sparkles, Clock, ChevronLeft, ChevronRight, Plus, MessageSquare, Pencil, Trash, Download } from "lucide-react"
-import { upsertConversation, appendMessage, getMessages, listConversations, deleteConversation } from "@/lib/chat-repo"
+import { upsertConversation, appendMessage, getMessages, listActiveConversations, deleteConversation } from "@/lib/chat-repo"
 import { downloadChatPDF } from "@/lib/export-pdf"
 import { useLanguage } from "@/lib/language-context"
 import { useAuth } from "@/lib/auth-context"
@@ -86,7 +86,8 @@ export function DashboardChatInterface() {
   // Load threads from Supabase
   const refreshThreads = useCallback(async () => {
     try {
-      const rows = await listConversations(100)
+      if (!user?.id) return
+      const rows = await listActiveConversations(user.id, 100)
       const mapped: ThreadMeta[] = (rows as any[]).map((r) => ({
         id: r.id,
         title: r.title,
@@ -153,17 +154,17 @@ export function DashboardChatInterface() {
         // Create a Supabase conversation with first message as title (trim)
         const title = currentInput.slice(0, 50)
         try {
-          convId = await upsertConversation(title)
+          convId = await upsertConversation(title, undefined, user?.id)
           setConversationId(convId)
           if (typeof window !== 'undefined') localStorage.setItem('conversationId', convId)
         } catch {}
       } else {
         // Touch title if still generic
-        try { await upsertConversation(currentInput.slice(0,50), convId) } catch {}
+        try { await upsertConversation(currentInput.slice(0,50), convId, user?.id) } catch {}
       }
 
       // Persist user message
-      try { if (convId) await appendMessage(convId, 'user', currentInput) } catch {}
+      try { if (convId && user?.id) await appendMessage(convId, 'user', currentInput, user.id) } catch {}
 
       const response = await ApiService.sendChatMessage(currentInput, convId, { 
         prefer: 'indian_constitution_precedent',
@@ -202,7 +203,7 @@ export function DashboardChatInterface() {
         }
         setMessages((prev) => [...prev, aiResponse])
         // Persist AI message
-        try { if (convId) await appendMessage(convId, 'ai', aiResponse.content) } catch {}
+        try { if (convId && user?.id) await appendMessage(convId, 'ai', aiResponse.content, user.id) } catch {}
       } else {
         // Strengthen weak responses by framing with authoritative preface when needed
         let content = response.response || ""
@@ -245,7 +246,7 @@ export function DashboardChatInterface() {
           return next
         })
         // Persist AI message
-        try { if (convId) await appendMessage(convId, 'ai', content) } catch {}
+        try { if (convId && user?.id) await appendMessage(convId, 'ai', content, user.id) } catch {}
       }
       // Update conv id from backend if provided
       if (response.conversation_id && response.conversation_id !== conversationId) {
@@ -284,7 +285,8 @@ export function DashboardChatInterface() {
     setConversationId(chatId)
     if (typeof window !== 'undefined') localStorage.setItem('conversationId', chatId)
     try {
-      const rows = await getMessages(chatId)
+      if (!user?.id) return
+      const rows = await getMessages(chatId, user.id)
       const restored: Message[] = rows.map(r => ({ id: r.id, content: r.content, sender: r.role as any, timestamp: new Date(r.created_at) }))
       setMessages(restored.length ? restored : [{
         id: 'new-1',
@@ -294,7 +296,7 @@ export function DashboardChatInterface() {
     } catch {
       setMessages([{ id: 'new-1', content: language==='en'?`Hello! I'm your AI legal assistant. How can I help you with Indian law today?`:`नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`, sender: 'ai', timestamp: new Date() }])
     }
-  }, [language])
+  }, [language, user?.id])
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(!sidebarCollapsed)
@@ -305,7 +307,7 @@ export function DashboardChatInterface() {
     setApiError(null)
     let newId = ''
     try {
-      newId = await upsertConversation(language==='en' ? 'New Chat' : 'नई चैट')
+      newId = await upsertConversation(language==='en' ? 'New Chat' : 'नई चैट', undefined, user?.id)
     } catch {
       newId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     }
@@ -324,7 +326,7 @@ export function DashboardChatInterface() {
     ])
     // Refresh thread list from Supabase
     refreshThreads()
-  }, [language, refreshThreads])
+  }, [language, refreshThreads, user?.id])
 
   const handleFileUpload = useCallback(() => {
     fileInputRef.current?.click()
@@ -368,12 +370,13 @@ export function DashboardChatInterface() {
   const handleDownloadPDF = useCallback(async () => {
     if (!conversationId) return
     try {
-      const msgs = await getMessages(conversationId)
+      if (!user?.id) return
+      const msgs = await getMessages(conversationId, user.id)
       const title = threads.find(t => t.id === conversationId)?.title || 'Chat'
       const pdfMsgs = (msgs as any[]).map(m => ({ role: m.role as 'user' | 'ai', content: m.content, created_at: m.created_at }))
       downloadChatPDF(title, pdfMsgs)
     } catch {}
-  }, [conversationId, threads])
+  }, [conversationId, threads, user?.id])
 
   return (
     <div className="h-[calc(100vh-120px)] flex gap-4">
@@ -449,7 +452,7 @@ export function DashboardChatInterface() {
                               className="h-6 px-2"
                               onClick={async ()=>{
                                 const next = prompt(language==='en'?'Rename chat':'चैट का नाम बदलें', (chat as any).title || '')
-                                if (next && next.trim()) { try { await upsertConversation(next.trim(), chat.id); refreshThreads(); } catch {} }
+                                if (next && next.trim()) { try { await upsertConversation(next.trim(), chat.id, user?.id); refreshThreads(); } catch {} }
                               }}
                             >
                               <Pencil className="w-3.5 h-3.5"/>
@@ -478,7 +481,7 @@ export function DashboardChatInterface() {
                                     setMessages([{ id: 'new-1', content: language==='en'?`Hello! I'm your AI legal assistant. How can I help you with Indian law today?`:`नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`, sender:'ai', timestamp: new Date()}])
                                   }
                                   try {
-                                    await deleteConversation(chat.id)
+                                    if (user?.id) await deleteConversation(chat.id, user.id)
                                     // Sync with server (in case other changes)
                                     await refreshThreads()
                                   } catch (e) {

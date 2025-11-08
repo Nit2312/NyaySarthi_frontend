@@ -26,8 +26,9 @@ import { useLoading } from "@/hooks/use-loading";
 import { useDebounce } from "@/hooks/use-debounce";
 import Link from "next/link";
 import useSpeech from "@/hooks/use-speech";
+import { useAuth } from "@/lib/auth-context";
 import { ChatMessagesArea } from "./chat-messages-area";
-import { upsertConversation, appendMessage, getMessages, listConversations } from "@/lib/chat-repo";
+import { upsertConversation, appendMessage, getMessages, listActiveConversations } from "@/lib/chat-repo";
 import { downloadJSON, toMarkdown, downloadMarkdown } from "@/lib/export-chat";
 
 interface Message {
@@ -48,6 +49,7 @@ type ThreadMeta = {
 export function ChatInterface() {
   const { t, language } = useLanguage();
   const { isLoading, withLoading } = useLoading();
+  const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -117,6 +119,24 @@ export function ChatInterface() {
     };
   }, []);
 
+  // Sync recent chats from Supabase on mount to avoid stale local cache (only chats that still have messages)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!user?.id) return;
+        const rows = await listActiveConversations(user.id, 100);
+        const mapped: ThreadMeta[] = (rows as any[]) .map((r) => ({
+          id: r.id,
+          title: r.title,
+          lastMessage: "",
+          updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now(),
+        }));
+        setThreads(mapped);
+        if (typeof window !== "undefined") localStorage.setItem("chatThreads", JSON.stringify(mapped));
+      } catch {}
+    })();
+  }, [user?.id]);
+
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
 
@@ -148,7 +168,7 @@ export function ChatInterface() {
         let convId = conversationId;
         if (!convId || convId.length !== 36) {
           try {
-            convId = await upsertConversation(currentInput.slice(0, 50));
+            convId = await upsertConversation(currentInput.slice(0, 50), undefined, user?.id);
             setConversationId(convId);
             if (typeof window !== "undefined") localStorage.setItem("conversationId", convId);
           } catch {
@@ -157,11 +177,11 @@ export function ChatInterface() {
             if (typeof window !== "undefined") localStorage.setItem("conversationId", convId);
           }
         } else {
-          try { await upsertConversation(currentInput.slice(0,50), convId) } catch {}
+          try { await upsertConversation(currentInput.slice(0,50), convId, user?.id) } catch {}
         }
 
         // Persist user message
-        try { if (convId) await appendMessage(convId, 'user', currentInput) } catch {}
+        try { if (convId && user?.id) await appendMessage(convId, 'user', currentInput, user.id) } catch {}
 
         const resp = await ApiService.sendAgenticMessage(
           currentInput,
@@ -213,7 +233,7 @@ export function ChatInterface() {
           return next;
         });
         // Persist AI message
-        try { if (convId) await appendMessage(convId, 'ai', content) } catch {}
+        try { if (convId && user?.id) await appendMessage(convId, 'ai', content, user.id) } catch {}
       } catch (err) {
         setError("Failed to get response. Please try again.");
         console.error("Chat error:", err);
@@ -251,7 +271,7 @@ export function ChatInterface() {
                   // start new conversation
                   (async () => {
                     try {
-                      const newId = await upsertConversation(language === 'en' ? 'New Chat' : 'नई चैट');
+                      const newId = await upsertConversation(language === 'en' ? 'New Chat' : 'नई चैट', undefined, user?.id);
                       setConversationId(newId);
                       localStorage.setItem("conversationId", newId);
                       setMessages([
@@ -296,9 +316,21 @@ export function ChatInterface() {
                           setConversationId(th.id);
                           localStorage.setItem("conversationId", th.id);
                           try {
-                            const rows = await getMessages(th.id);
+                            if (!user?.id) return;
+                            const rows = await getMessages(th.id, user.id);
                             const restored: Message[] = rows.map(r => ({ id: r.id, content: r.content, sender: r.role as any, timestamp: new Date(r.created_at) }))
-                            setMessages(restored.length ? restored : [{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
+                            if (restored.length === 0) {
+                              // Prune this thread from local cache and UI if it has no messages (likely deleted on server)
+                              setThreads(prev => {
+                                const next = prev.filter(tt => tt.id !== th.id);
+                                try { localStorage.setItem('chatThreads', JSON.stringify(next)) } catch {}
+                                return next;
+                              });
+                              try { localStorage.removeItem(`chatHistory:${th.id}`) } catch {}
+                              setMessages([{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }]);
+                              return;
+                            }
+                            setMessages(restored)
                           } catch {
                             setMessages([{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
                           }
@@ -343,12 +375,12 @@ export function ChatInterface() {
             </header>
 
             {/* Messages + Input unified like ChatGPT */}
-            <main className="flex-1 min-h-0">
-              <div className="h-full max-w-xl mx-auto px-6">
+            <main className="flex-1 min-h-0 py-1">
+              <div className="h-full max-w-xl mx-auto px-6 mt-4">
                 <Card className="glass-ultra glow-medium border border-white/20 h-full flex flex-col">
                   <CardContent className="p-0 h-full flex flex-col">
-                    {/* Scrollable messages area */}
-                    <div className="flex-1 min-h-0 overflow-y-auto">
+                    {/* Scrollable messages area (scroll handled inside ChatMessagesArea) */}
+                    <div className="flex-1 min-h-0">
                       <ChatMessagesArea
                         messages={messages}
                         isLoading={isLoading}
@@ -359,7 +391,7 @@ export function ChatInterface() {
                     </div>
                     {/* Docked input */}
                     <div className="border-t border-white/10 p-3">
-                      <div className="relative flex items-center gap-2">
+                      <div className="relative flex items-center gap-2 my-5">
                         <Input
                           ref={inputRef}
                           value={inputValue}
@@ -378,9 +410,9 @@ export function ChatInterface() {
                             variant="ghost"
                             size="icon"
                             onClick={async () => {
-                              if (!conversationId) return
+                              if (!conversationId || !user?.id) return
                               try {
-                                const msgs = await getMessages(conversationId)
+                                const msgs = await getMessages(conversationId, user.id)
                                 const title = threads.find(t => t.id === conversationId)?.title || 'chat'
                                 downloadJSON(`${title.replace(/\s+/g,'_')}.json`, msgs)
                               } catch {}
@@ -394,9 +426,9 @@ export function ChatInterface() {
                             variant="ghost"
                             size="icon"
                             onClick={async () => {
-                              if (!conversationId) return
+                              if (!conversationId || !user?.id) return
                               try {
-                                const msgs = await getMessages(conversationId)
+                                const msgs = await getMessages(conversationId, user.id)
                                 const title = threads.find(t => t.id === conversationId)?.title || 'chat'
                                 const md = toMarkdown(title, msgs)
                                 downloadMarkdown(`${title.replace(/\s+/g,'_')}.md`, md)
