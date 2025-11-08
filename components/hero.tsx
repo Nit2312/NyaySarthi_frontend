@@ -29,12 +29,12 @@ export function Hero() {
 
   return (
     <>
-      <section className="relative min-h-[88vh] flex items-center px-4 py-16">
+      <section className="relative min-h-[88vh] flex items-center px-4 pt-24">
         <div className="container mx-auto max-w-6xl relative z-10">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Content */}
             <div className="space-y-8">
-              <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs bg-black/40 backdrop-blur-sm border border-white/10">
+              <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs bg-black/40 backdrop-blur-sm border border-white/10 mt-2 md:mt-4">
                 <Scale className="w-4 h-4 text-white/80" />
                 <span className="text-white/90">{t("hero.tagline")}</span>
               </div>

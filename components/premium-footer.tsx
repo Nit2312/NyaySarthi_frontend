@@ -122,10 +122,10 @@ export function PremiumFooter() {
         {/* Blogs Section */}
         <div className="container mx-auto max-w-7xl px-4 py-16">
           <div id="blogs" className="scroll-mt-24 glass-ultra rounded-3xl p-12 floating-element glow-strong border border-white/20 mb-16">
-            <div className="text-center max-w-3xl mx-auto space-y-6">
+            <div className="text-center max-w-3xl mx-auto space-y-6 overflow-visible">
               <div className="flex items-center justify-center gap-3 mb-4">
                 <Crown className="w-8 h-8 text-accent glow-medium" />
-                <h2 className="text-4xl font-bold text-premium text-glow">
+                <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight text-white drop-shadow-md">
                   {language === "en" ? "Explore Legal Blogs" : "कानूनी ब्लॉग्स देखें"}
                 </h2>
               </div>

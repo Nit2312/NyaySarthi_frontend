@@ -796,11 +796,15 @@ export function PrecedentFinderInterface() {
 
             {/* Diagnostic Messages */}
             {(ikDiag || searchError) && (
-              <div className={`mt-4 p-3 rounded-md text-sm ${
-                searchError 
-                  ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' 
-                  : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
-              }`}>
+              <div
+                className={`mt-4 p-3 rounded-md text-sm ${
+                  searchError
+                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                    : (ikDiag?.startsWith('Found ')
+                        ? 'bg-green-200 text-black border border-green-300'
+                        : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400')
+                }`}
+              >
                 {searchError || ikDiag}
                 {searchError && (
                   <button 

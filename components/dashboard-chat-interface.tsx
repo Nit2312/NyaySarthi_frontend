@@ -81,7 +81,14 @@ export function DashboardChatInterface() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [])
 
+  // Prevent auto-scroll on first render
+  const hasInitializedRef = useRef(false)
+
   useEffect(() => {
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true
+      return
+    }
     scrollToBottom()
   }, [messages, scrollToBottom])
 
@@ -351,15 +358,15 @@ export function DashboardChatInterface() {
   }, [listening, startListening, stopListening])
 
   return (
-    <div className="h-full flex gap-4">
+    <div className="h-[calc(100vh-120px)] flex gap-4">
       {/* Collapsible Recent Chats Sidebar */}
-      <div className={`transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-16' : 'w-80'}`}>
-        <Card className="glass-ultra glow-medium border border-white/20 h-full">
-          <CardHeader className="pb-4">
+      <div className={`transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-14' : 'w-64'} flex flex-col`}>
+        <Card className="glass-ultra border border-white/10 h-full flex flex-col shadow-2xl">
+          <CardHeader className="pb-3 pt-4 px-4 border-b border-white/5">
             <div className="flex items-center justify-between">
               {!sidebarCollapsed && (
-                <CardTitle className="text-lg flex items-center gap-2 text-premium">
-                  <Clock className="w-5 h-5 text-accent" />
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-white/90">
+                  <MessageSquare className="w-4 h-4 text-primary" />
                   {language === "en" ? "Recent Chats" : "हाल की चैट"}
                 </CardTitle>
               )}
@@ -367,24 +374,24 @@ export function DashboardChatInterface() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleSidebar}
-                className="h-8 w-8 p-0 glass glow-subtle hover:glow-medium transition-all"
+                className="h-7 w-7 p-0 hover:bg-white/10 transition-all"
               >
                 {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="flex-1 overflow-y-auto p-3 space-y-2">
             {!sidebarCollapsed && (
               <Button
                 onClick={startNewChat}
-                className="w-full justify-start gap-3 glass-strong glow-medium hover:glow-strong transition-all"
+                className="w-full justify-start gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/30 text-white transition-all py-2.5 text-sm font-medium mb-2"
               >
                 <Plus className="w-4 h-4" />
                 {language === "en" ? "New Chat" : "नई चैट"}
               </Button>
             )}
             {threads.length === 0 ? (
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-white/40 text-center py-8">
                 {language === 'en' ? 'No chats yet. Start a new chat.' : 'अभी कोई चैट नहीं। नई चैट शुरू करें।'}
               </div>
             ) : (
@@ -394,29 +401,31 @@ export function DashboardChatInterface() {
                   <div
                     key={chat.id}
                     onClick={() => loadPreviousChat(chat.id)}
-                    className={`rounded-xl cursor-pointer transition-all duration-300 ${
-                      activeChat === chat.id ? "glass-strong glow-medium" : "glass hover:glass-strong hover:glow-subtle"
+                    className={`rounded-lg cursor-pointer transition-all duration-200 ${
+                      activeChat === chat.id 
+                        ? "bg-white/10 border-l-2 border-primary shadow-lg" 
+                        : "bg-white/[0.02] hover:bg-white/5 border-l-2 border-transparent"
                     } ${sidebarCollapsed ? 'p-2' : 'p-3'}`}
                   >
                     {sidebarCollapsed ? (
                       <div className="flex flex-col items-center space-y-1">
-                        <MessageSquare className={`w-4 h-4 transition-all duration-300 ${
+                        <MessageSquare className={`w-4 h-4 transition-all duration-200 ${
                           activeChat === chat.id 
-                            ? "text-primary glow-medium" 
-                            : "text-white/70 hover:text-white"
+                            ? "text-primary" 
+                            : "text-white/50 hover:text-white/80"
                         }`} />
                         {activeChat === chat.id && (
-                          <div className="w-1 h-1 bg-accent rounded-full animate-pulse"></div>
+                          <div className="w-1 h-1 bg-primary rounded-full animate-pulse"></div>
                         )}
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-start justify-between mb-2">
-                          <h4 className="font-medium text-sm text-premium truncate">
+                        <div className="flex items-start justify-between mb-1.5">
+                          <h4 className="font-medium text-sm text-white/90 truncate pr-2">
                             {chat.title}
                           </h4>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                        <p className="text-xs text-white/50 line-clamp-2">
                           {chat.lastMessage}
                         </p>
                       </>
@@ -430,47 +439,46 @@ export function DashboardChatInterface() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
-
-
         {/* Error Message */}
         {apiError && (
-          <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
+          <div className="mb-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
             <p className="text-red-200 text-sm">{apiError}</p>
           </div>
         )}
 
-        {/* Messages Area */}
-        <Card className="glass-ultra glow-medium border border-white/20 mb-4" style={{ height: '600px' }}>
-          <CardContent className="p-0 h-full">
-            <ScrollArea className="h-full p-6">
-              <div className="space-y-6">
-                {messages.map((message) => (
+        {/* Messages + Input (single block like ChatGPT) */}
+        <Card className="glass-ultra border border-white/10 flex-1 min-h-0 shadow-2xl">
+          <CardContent className="p-0 h-full flex flex-col">
+            {/* Scrollable messages area */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-3">
+              <div className="space-y-2">
+                {messages.map((message, idx) => (
                   <div
                     key={message.id}
-                    className={`flex gap-4 ${message.sender === "user" ? "justify-end" : "justify-start"}`}
+                    className={`flex gap-3 ${message.sender === "user" ? "justify-end" : "justify-start"} group`}
                   >
                     {message.sender === "ai" && (
-                      <Avatar className="w-10 h-10 bg-gradient-to-br from-primary to-accent glow-medium">
-                        <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-primary-foreground">
-                          <Scale className="w-5 h-5" />
+                      <Avatar className="w-8 h-8 bg-primary/20 border border-primary/30 flex-shrink-0">
+                        <AvatarFallback className="bg-primary/20 text-primary">
+                          <Scale className="w-4 h-4" />
                         </AvatarFallback>
                       </Avatar>
                     )}
 
                     <div
-                      className={`max-w-[75%] rounded-2xl px-6 py-4 transition-all duration-300 ${
+                      className={`max-w-[82%] rounded-2xl px-4 py-2 transition-all ${
                         message.sender === "user"
-                          ? "bg-gradient-to-br from-primary to-accent text-primary-foreground ml-auto glow-medium border border-white/20"
-                          : "glass-strong glow-subtle border border-white/10"
+                          ? "bg-white text-neutral-900 ml-auto shadow-lg border border-white/60"
+                          : "bg-white/[0.04] text-white/95 border border-white/10"
                       }`}
                     >
-                      <div className="text-sm leading-relaxed whitespace-pre-line font-medium">{message.content}</div>
-                      <div className="flex items-center justify-between mt-3">
-                        <p className="text-xs opacity-70 font-medium">
+                      <div className={`text-[15px] leading-7 whitespace-pre-wrap break-words ${message.sender === 'user' ? 'text-neutral-900' : 'text-white/95'}`}>{message.content}</div>
+                      <div className="flex items-center justify-between mt-1.5 gap-3">
+                        <p className={`text-[11px] leading-none ${message.sender === 'user' ? 'text-neutral-600' : 'text-white/50'}`}>
                           {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </p>
                         {message.category && (
-                          <Badge variant="secondary" className="text-xs glass">
+                          <Badge variant="secondary" className="text-[10px] bg-white/10 text-white/70 border-0 px-2 py-0">
                             {message.category}
                           </Badge>
                         )}
@@ -478,9 +486,9 @@ export function DashboardChatInterface() {
                     </div>
 
                     {message.sender === "user" && (
-                      <Avatar className="w-10 h-10 bg-gradient-to-br from-secondary to-muted glow-subtle">
-                        <AvatarFallback className="bg-gradient-to-br from-secondary to-muted text-secondary-foreground">
-                          <User className="w-5 h-5" />
+                      <Avatar className="w-8 h-8 bg-white/10 border border-white/20 flex-shrink-0">
+                        <AvatarFallback className="bg-white/10 text-white/80">
+                          <User className="w-4 h-4" />
                         </AvatarFallback>
                       </Avatar>
                     )}
@@ -488,21 +496,21 @@ export function DashboardChatInterface() {
                 ))}
 
                 {isTyping && (
-                  <div className="flex gap-4 justify-start">
-                    <Avatar className="w-10 h-10 bg-gradient-to-br from-primary to-accent glow-medium">
-                      <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-primary-foreground">
-                        <Scale className="w-5 h-5" />
+                  <div className="flex gap-3 justify-start">
+                    <Avatar className="w-8 h-8 bg-primary/20 border border-primary/30">
+                      <AvatarFallback className="bg-primary/20 text-primary">
+                        <Scale className="w-4 h-4" />
                       </AvatarFallback>
                     </Avatar>
-                    <div className="glass-strong rounded-2xl px-6 py-4 glow-subtle border border-white/10">
-                      <div className="flex gap-2">
-                        <div className="w-3 h-3 bg-primary rounded-full animate-bounce glow-subtle"></div>
+                    <div className="bg-white/[0.04] rounded-2xl px-4 py-3 border border-white/10">
+                      <div className="flex gap-1.5">
+                        <div className="w-2 h-2 bg-primary/70 rounded-full animate-bounce"></div>
                         <div
-                          className="w-3 h-3 bg-primary rounded-full animate-bounce glow-subtle"
+                          className="w-2 h-2 bg-primary/70 rounded-full animate-bounce"
                           style={{ animationDelay: "0.1s" }}
                         ></div>
                         <div
-                          className="w-3 h-3 bg-primary rounded-full animate-bounce glow-subtle"
+                          className="w-2 h-2 bg-primary/70 rounded-full animate-bounce"
                           style={{ animationDelay: "0.2s" }}
                         ></div>
                       </div>
@@ -511,79 +519,67 @@ export function DashboardChatInterface() {
                 )}
               </div>
               <div ref={messagesEndRef} />
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        {/* Input Area */}
-        <Card className="glass-ultra glow-strong border border-white/20">
-          <CardContent className="p-4">
-            <div className="flex gap-3 items-end">
-              <div className="flex-1 relative">
-                <Input
-                  ref={inputRef}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
-                  className="glass-strong border-white/20 pr-32 py-4 text-base font-medium glow-subtle focus:glow-medium transition-all duration-300"
-                  disabled={isTyping}
-                />
-                {listening && (
-                  <div className="absolute left-0 top-full mt-1 text-xs text-accent/80">
-                    {language === 'en' ? 'Listening...' : 'सुन रहा हूँ...'} {interimTranscript}
+            </div>
+            {/* Docked input footer inside the same card */}
+            <div className="border-t border-white/5 px-2 py-1 bg-white/[0.02]">
+              <div className="flex gap-2 items-end">
+                  <div className="flex-1 relative">
+                    <Input
+                      ref={inputRef}
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
+                      className="bg-white/5 border-white/10 pr-24 py-2 text-[15px] placeholder:text-white/40 focus:bg-white/10 focus:border-primary/50 transition-all rounded-xl"
+                      disabled={isTyping}
+                    />
+                    {listening && (
+                      <div className="absolute left-0 top-full mt-1 text-xs text-primary/80">
+                        {language === 'en' ? 'Listening...' : 'सुन रहा हूँ...'} {interimTranscript}
+                      </div>
+                    )}
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleFileUpload}
+                        className={`h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg ${listening ? 'opacity-50' : ''}`}
+                        disabled={listening}
+                      >
+                        <Paperclip className="w-4 h-4 text-white/60" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={toggleVoiceInput}
+                        className={`h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg ${listening ? 'bg-primary/20 text-primary' : ''}`}
+                        aria-pressed={listening}
+                        title={sttSupported ? (listening ? (language === 'en' ? 'Stop voice input' : 'वॉइस इनपुट रोकें') : (language === 'en' ? 'Start voice input' : 'वॉइस इनपुट शुरू करें')) : (language === 'en' ? 'Voice input not supported' : 'वॉइस इनपुट समर्थित नहीं है')}
+                        disabled={isTyping}
+                      >
+                        <Mic className={`w-4 h-4 ${listening ? 'animate-pulse text-primary' : 'text-white/60'}`} />
+                      </Button>
+                    </div>
                   </div>
-                )}
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleFileUpload}
-                    className={`h-8 w-8 p-0 glass glow-subtle hover:glow-medium transition-all ${listening ? 'opacity-50' : ''}`}
-                    disabled={listening}
+                    onClick={handleSendMessage}
+                    disabled={!inputValue.trim() || isTyping}
+                    className="px-3.5 py-2 bg-primary hover:bg-primary/90 transition-all rounded-xl group shadow-lg"
                   >
-                    <Paperclip className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={toggleVoiceInput}
-                    className={`h-8 w-8 p-0 glass glow-subtle hover:glow-medium transition-all ${listening ? 'bg-primary/20 text-primary' : ''}`}
-                    aria-pressed={listening}
-                    title={sttSupported ? (listening ? (language === 'en' ? 'Stop voice input' : 'वॉइस इनपुट रोकें') : (language === 'en' ? 'Start voice input' : 'वॉइस इनपुट शुरू करें')) : (language === 'en' ? 'Voice input not supported' : 'वॉइस इनपुट समर्थित नहीं है')}
-                    disabled={isTyping}
-                  >
-                    <Mic className={`w-4 h-4 ${listening ? 'animate-pulse' : ''}`} />
+                    <Send className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                   </Button>
                 </div>
-              </div>
-              <Button
-                onClick={handleSendMessage}
-                disabled={!inputValue.trim() || isTyping}
-                className="px-6 py-4 glass-strong glow-medium hover:glow-strong transition-all duration-300 group"
-              >
-                <Send className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </Button>
-            </div>
-            
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            
-            <div className="flex items-center justify-center gap-2 mt-4">
-              <div className="w-4 h-4 text-accent">
-                <Scale className="w-4 h-4" />
-              </div>
-              <p className="text-xs text-muted-foreground text-center font-medium">
-                {language === "en"
-                  ? "Nyay Sarthi provides general legal information based on Indian law. Consult a qualified lawyer for specific legal advice."
-                  : "न्याय सारथी भारतीय कानून के आधार पर सामान्य कानूनी जानकारी प्रदान करता है। विशिष्ट कानूनी सलाह के लिए एक योग्य वकील से सलाह लें।"}
-              </p>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {/* disclaimer removed as requested */}
             </div>
           </CardContent>
         </Card>
