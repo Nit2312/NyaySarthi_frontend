@@ -9,7 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Send, Scale, User, Mic, Paperclip, Sparkles, Clock, ChevronLeft, ChevronRight, Plus, MessageSquare } from "lucide-react"
+import { Send, Scale, User, Mic, Paperclip, Sparkles, Clock, ChevronLeft, ChevronRight, Plus, MessageSquare, Pencil, Trash, Download } from "lucide-react"
+import { upsertConversation, appendMessage, getMessages, listConversations, deleteConversation } from "@/lib/chat-repo"
+import { downloadChatPDF } from "@/lib/export-pdf"
 import { useLanguage } from "@/lib/language-context"
 import { useAuth } from "@/lib/auth-context"
 import { ApiService } from "@/lib/api-service"
@@ -24,18 +26,7 @@ interface Message {
   saved?: boolean
 }
 
-type ThreadMeta = {
-  id: string
-  title: string
-  lastMessage: string
-  updatedAt: number
-}
-
-// Persistent threads (localStorage-backed)
-const loadThreads = (): ThreadMeta[] => {
-  if (typeof window === 'undefined') return []
-  try { return JSON.parse(localStorage.getItem('chatThreads') || '[]') as ThreadMeta[] } catch { return [] }
-}
+type ThreadMeta = { id: string; title: string; lastMessage: string; updatedAt: number }
 
 export function DashboardChatInterface() {
   const { t, language } = useLanguage()
@@ -59,7 +50,7 @@ export function DashboardChatInterface() {
   const [conversationId, setConversationId] = useState<string>(
     () => (typeof window !== 'undefined' ? localStorage.getItem('conversationId') || '' : '')
   )
-  const [threads, setThreads] = useState<ThreadMeta[]>(() => loadThreads())
+  const [threads, setThreads] = useState<ThreadMeta[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -91,6 +82,22 @@ export function DashboardChatInterface() {
     }
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  // Load threads from Supabase
+  const refreshThreads = useCallback(async () => {
+    try {
+      const rows = await listConversations(100)
+      const mapped: ThreadMeta[] = (rows as any[]).map((r) => ({
+        id: r.id,
+        title: r.title,
+        lastMessage: "",
+        updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now(),
+      }))
+      setThreads(mapped)
+    } catch {}
+  }, [])
+
+  useEffect(() => { refreshThreads() }, [refreshThreads])
 
   // Persist messages to localStorage when they change
   useEffect(() => {
@@ -142,11 +149,21 @@ export function DashboardChatInterface() {
     try {
       // Ensure we have a conversation id for this thread
       let convId = conversationId
-      if (!convId) {
-        convId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        setConversationId(convId)
-        if (typeof window !== 'undefined') localStorage.setItem('conversationId', convId)
+      if (!convId || convId.length !== 36) {
+        // Create a Supabase conversation with first message as title (trim)
+        const title = currentInput.slice(0, 50)
+        try {
+          convId = await upsertConversation(title)
+          setConversationId(convId)
+          if (typeof window !== 'undefined') localStorage.setItem('conversationId', convId)
+        } catch {}
+      } else {
+        // Touch title if still generic
+        try { await upsertConversation(currentInput.slice(0,50), convId) } catch {}
       }
+
+      // Persist user message
+      try { if (convId) await appendMessage(convId, 'user', currentInput) } catch {}
 
       const response = await ApiService.sendChatMessage(currentInput, convId, { 
         prefer: 'indian_constitution_precedent',
@@ -184,6 +201,8 @@ export function DashboardChatInterface() {
           category: "Case Matches",
         }
         setMessages((prev) => [...prev, aiResponse])
+        // Persist AI message
+        try { if (convId) await appendMessage(convId, 'ai', aiResponse.content) } catch {}
       } else {
         // Strengthen weak responses by framing with authoritative preface when needed
         let content = response.response || ""
@@ -225,6 +244,8 @@ export function DashboardChatInterface() {
           } catch {}
           return next
         })
+        // Persist AI message
+        try { if (convId) await appendMessage(convId, 'ai', content) } catch {}
       }
       // Update conv id from backend if provided
       if (response.conversation_id && response.conversation_id !== conversationId) {
@@ -258,42 +279,36 @@ export function DashboardChatInterface() {
     }
   }
 
-  const loadPreviousChat = useCallback((chatId: string) => {
+  const loadPreviousChat = useCallback(async (chatId: string) => {
     setActiveChat(chatId)
     setConversationId(chatId)
     if (typeof window !== 'undefined') localStorage.setItem('conversationId', chatId)
-    if (typeof window !== 'undefined') {
-      const raw = localStorage.getItem(`chatHistory:${chatId}`)
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw) as Array<Omit<Message, 'timestamp'> & { timestamp: string }>
-          const restored: Message[] = parsed.map(p => ({ ...p, timestamp: new Date(p.timestamp) }))
-          setMessages(restored)
-          return
-        } catch {}
-      }
+    try {
+      const rows = await getMessages(chatId)
+      const restored: Message[] = rows.map(r => ({ id: r.id, content: r.content, sender: r.role as any, timestamp: new Date(r.created_at) }))
+      setMessages(restored.length ? restored : [{
+        id: 'new-1',
+        content: language === 'en' ? `Hello! I'm your AI legal assistant. How can I help you with Indian law today?` : `नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`,
+        sender: 'ai', timestamp: new Date()
+      }])
+    } catch {
+      setMessages([{ id: 'new-1', content: language==='en'?`Hello! I'm your AI legal assistant. How can I help you with Indian law today?`:`नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`, sender: 'ai', timestamp: new Date() }])
     }
-    setMessages([
-      {
-        id: "new-1",
-        content:
-          language === "en"
-            ? `Hello! I'm your AI legal assistant. How can I help you with Indian law today?`
-            : `नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`,
-        sender: "ai",
-        timestamp: new Date(),
-      },
-    ])
   }, [language])
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(!sidebarCollapsed)
   }, [sidebarCollapsed])
 
-  const startNewChat = useCallback(() => {
+  const startNewChat = useCallback(async () => {
     setActiveChat(null)
     setApiError(null)
-    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    let newId = ''
+    try {
+      newId = await upsertConversation(language==='en' ? 'New Chat' : 'नई चैट')
+    } catch {
+      newId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    }
     setConversationId(newId)
     if (typeof window !== 'undefined') localStorage.setItem('conversationId', newId)
     setMessages([
@@ -307,17 +322,9 @@ export function DashboardChatInterface() {
         timestamp: new Date(),
       },
     ])
-    // Clear any existing history for this new conversation id
-    if (typeof window !== 'undefined') {
-      try { localStorage.removeItem(`chatHistory:${newId}`) } catch {}
-    }
-    // Add empty thread meta
-    try {
-      const updated: ThreadMeta[] = [{ id: newId, title: language==='en' ? 'New Chat' : 'नई चैट', lastMessage: '', updatedAt: Date.now() }, ...threads]
-      setThreads(updated)
-      localStorage.setItem('chatThreads', JSON.stringify(updated))
-    } catch {}
-  }, [language])
+    // Refresh thread list from Supabase
+    refreshThreads()
+  }, [language, refreshThreads])
 
   const handleFileUpload = useCallback(() => {
     fileInputRef.current?.click()
@@ -357,6 +364,17 @@ export function DashboardChatInterface() {
     }
   }, [listening, startListening, stopListening])
 
+  // Download PDF handler
+  const handleDownloadPDF = useCallback(async () => {
+    if (!conversationId) return
+    try {
+      const msgs = await getMessages(conversationId)
+      const title = threads.find(t => t.id === conversationId)?.title || 'Chat'
+      const pdfMsgs = (msgs as any[]).map(m => ({ role: m.role as 'user' | 'ai', content: m.content, created_at: m.created_at }))
+      downloadChatPDF(title, pdfMsgs)
+    } catch {}
+  }, [conversationId, threads])
+
   return (
     <div className="h-[calc(100vh-120px)] flex gap-4">
       {/* Collapsible Recent Chats Sidebar */}
@@ -391,7 +409,7 @@ export function DashboardChatInterface() {
               </Button>
             )}
             {threads.length === 0 ? (
-              <div className="text-xs text-white/40 text-center py-8">
+              <div className="text-xs text-muted-foreground">
                 {language === 'en' ? 'No chats yet. Start a new chat.' : 'अभी कोई चैट नहीं। नई चैट शुरू करें।'}
               </div>
             ) : (
@@ -422,12 +440,59 @@ export function DashboardChatInterface() {
                       <>
                         <div className="flex items-start justify-between mb-1.5">
                           <h4 className="font-medium text-sm text-white/90 truncate pr-2">
-                            {chat.title}
+                            {(chat as any).title || (language==='en'?'Untitled':'शीर्षक रहित')}
                           </h4>
+                          <div className="flex gap-1 opacity-70 hover:opacity-100" onClick={(e)=>e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2"
+                              onClick={async ()=>{
+                                const next = prompt(language==='en'?'Rename chat':'चैट का नाम बदलें', (chat as any).title || '')
+                                if (next && next.trim()) { try { await upsertConversation(next.trim(), chat.id); refreshThreads(); } catch {} }
+                              }}
+                            >
+                              <Pencil className="w-3.5 h-3.5"/>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2"
+                              onClick={async ()=>{
+                                if (confirm(language==='en'?'Delete this chat?':'इस चैट को हटाएँ?')) {
+                                  // Optimistic UI update first
+                                  let prevThreads: ThreadMeta[] = []
+                                  setThreads(prev => {
+                                    prevThreads = prev
+                                    const next = prev.filter(t => t.id !== chat.id)
+                                    try { localStorage.setItem('chatThreads', JSON.stringify(next)) } catch {}
+                                    return next
+                                  })
+                                  if (activeChat === chat.id) setActiveChat(null)
+                                  // Clear local cache for this conversation
+                                  try { localStorage.removeItem(`chatHistory:${chat.id}`) } catch {}
+                                  // Reset if currently open
+                                  if (conversationId === chat.id) {
+                                    setConversationId('')
+                                    try { localStorage.removeItem('conversationId') } catch {}
+                                    setMessages([{ id: 'new-1', content: language==='en'?`Hello! I'm your AI legal assistant. How can I help you with Indian law today?`:`नमस्ते! मैं आपका AI कानूनी सहायक हूं। आज मैं भारतीय कानून में आपकी कैसे सहायता कर सकता हूं?`, sender:'ai', timestamp: new Date()}])
+                                  }
+                                  try {
+                                    await deleteConversation(chat.id)
+                                    // Sync with server (in case other changes)
+                                    await refreshThreads()
+                                  } catch (e) {
+                                    // Rollback UI if server delete failed
+                                    if (prevThreads.length) setThreads(prevThreads)
+                                    alert(language==='en'? 'Failed to delete chat. Please try again.' : 'चैट हटाने में विफल। कृपया पुनः प्रयास करें।')
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash className="w-3.5 h-3.5"/>
+                            </Button>
+                          </div>
                         </div>
-                        <p className="text-xs text-white/50 line-clamp-2">
-                          {chat.lastMessage}
-                        </p>
                       </>
                     )}
                   </div>
@@ -538,10 +603,20 @@ export function DashboardChatInterface() {
                         {language === 'en' ? 'Listening...' : 'सुन रहा हूँ...'} {interimTranscript}
                       </div>
                     )}
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDownloadPDF}
+                      className="h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg"
+                      title={language==='en' ? 'Download chat as PDF' : 'चैट को PDF में डाउनलोड करें'}
+                      aria-label={language==='en' ? 'Download' : 'डाउनलोड'}
+                    >
+                      <Download className="w-4 h-4 text-white/60" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                         onClick={handleFileUpload}
                         className={`h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg ${listening ? 'opacity-50' : ''}`}
                         disabled={listening}

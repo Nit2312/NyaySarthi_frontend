@@ -27,6 +27,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import Link from "next/link";
 import useSpeech from "@/hooks/use-speech";
 import { ChatMessagesArea } from "./chat-messages-area";
+import { upsertConversation, appendMessage, getMessages, listConversations } from "@/lib/chat-repo";
+import { downloadJSON, toMarkdown, downloadMarkdown } from "@/lib/export-chat";
 
 interface Message {
   id: string;
@@ -142,14 +144,24 @@ export function ChatInterface() {
           ? "cases"
           : undefined;
 
-        // Ensure conversation id
+        // Ensure conversation id (try Supabase, fallback to local id)
         let convId = conversationId;
-        if (!convId) {
-          convId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          setConversationId(convId);
-          if (typeof window !== "undefined")
-            localStorage.setItem("conversationId", convId);
+        if (!convId || convId.length !== 36) {
+          try {
+            convId = await upsertConversation(currentInput.slice(0, 50));
+            setConversationId(convId);
+            if (typeof window !== "undefined") localStorage.setItem("conversationId", convId);
+          } catch {
+            convId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            setConversationId(convId);
+            if (typeof window !== "undefined") localStorage.setItem("conversationId", convId);
+          }
+        } else {
+          try { await upsertConversation(currentInput.slice(0,50), convId) } catch {}
         }
+
+        // Persist user message
+        try { if (convId) await appendMessage(convId, 'user', currentInput) } catch {}
 
         const resp = await ApiService.sendAgenticMessage(
           currentInput,
@@ -200,6 +212,8 @@ export function ChatInterface() {
           } catch {}
           return next;
         });
+        // Persist AI message
+        try { if (convId) await appendMessage(convId, 'ai', content) } catch {}
       } catch (err) {
         setError("Failed to get response. Please try again.");
         console.error("Chat error:", err);
@@ -235,22 +249,23 @@ export function ChatInterface() {
               <Button
                 onClick={() => {
                   // start new conversation
-                  const newId = `${Date.now()}-${Math.random()
-                    .toString(36)
-                    .slice(2, 8)}`;
-                  setConversationId(newId);
-                  localStorage.setItem("conversationId", newId);
-                  setMessages([
-                    {
-                      id: "1",
-                      content: t("chat.greeting"),
-                      sender: "ai",
-                      timestamp: new Date(),
-                    },
-                  ]);
-                  try {
-                    localStorage.removeItem(`chatHistory:${newId}`);
-                  } catch {}
+                  (async () => {
+                    try {
+                      const newId = await upsertConversation(language === 'en' ? 'New Chat' : 'नई चैट');
+                      setConversationId(newId);
+                      localStorage.setItem("conversationId", newId);
+                      setMessages([
+                        { id: "1", content: t("chat.greeting"), sender: "ai", timestamp: new Date() },
+                      ]);
+                    } catch {
+                      const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                      setConversationId(newId);
+                      localStorage.setItem("conversationId", newId);
+                      setMessages([
+                        { id: "1", content: t("chat.greeting"), sender: "ai", timestamp: new Date() },
+                      ]);
+                    }
+                  })();
                 }}
                 className="w-full mt-3"
                 size="sm"
@@ -277,41 +292,17 @@ export function ChatInterface() {
                     <button
                       key={th.id}
                       onClick={() => {
-                        setConversationId(th.id);
-                        localStorage.setItem("conversationId", th.id);
-                        try {
-                          const raw = localStorage.getItem(
-                            `chatHistory:${th.id}`
-                          );
-                          if (raw) {
-                            const parsed = JSON.parse(raw) as Array<
-                              Omit<Message, "timestamp"> & { timestamp: string }
-                            >;
-                            const restored: Message[] = parsed.map((p) => ({
-                              ...p,
-                              timestamp: new Date(p.timestamp),
-                            }));
-                            setMessages(restored);
-                          } else {
-                            setMessages([
-                              {
-                                id: "1",
-                                content: t("chat.greeting"),
-                                sender: "ai",
-                                timestamp: new Date(),
-                              },
-                            ]);
+                        (async () => {
+                          setConversationId(th.id);
+                          localStorage.setItem("conversationId", th.id);
+                          try {
+                            const rows = await getMessages(th.id);
+                            const restored: Message[] = rows.map(r => ({ id: r.id, content: r.content, sender: r.role as any, timestamp: new Date(r.created_at) }))
+                            setMessages(restored.length ? restored : [{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
+                          } catch {
+                            setMessages([{ id: '1', content: t('chat.greeting'), sender: 'ai', timestamp: new Date() }])
                           }
-                        } catch {
-                          setMessages([
-                            {
-                              id: "1",
-                              content: t("chat.greeting"),
-                              sender: "ai",
-                              timestamp: new Date(),
-                            },
-                          ]);
-                        }
+                        })();
                       }}
                       className="w-full text-left rounded-lg p-3 hover:bg-muted/50 transition border"
                     >
@@ -383,6 +374,39 @@ export function ChatInterface() {
                           disabled={isLoading}
                         />
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={async () => {
+                              if (!conversationId) return
+                              try {
+                                const msgs = await getMessages(conversationId)
+                                const title = threads.find(t => t.id === conversationId)?.title || 'chat'
+                                downloadJSON(`${title.replace(/\s+/g,'_')}.json`, msgs)
+                              } catch {}
+                            }}
+                            aria-label="Download JSON"
+                            className="h-9 w-9"
+                          >
+                            JSON
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={async () => {
+                              if (!conversationId) return
+                              try {
+                                const msgs = await getMessages(conversationId)
+                                const title = threads.find(t => t.id === conversationId)?.title || 'chat'
+                                const md = toMarkdown(title, msgs)
+                                downloadMarkdown(`${title.replace(/\s+/g,'_')}.md`, md)
+                              } catch {}
+                            }}
+                            aria-label="Download Markdown"
+                            className="h-9 w-9"
+                          >
+                            MD
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
