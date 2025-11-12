@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -77,6 +78,7 @@ const mockDocuments: UploadedDocument[] = [
 export function DocumentUploadInterface() {
   const { language } = useLanguage()
   const { user } = useAuth()
+  const router = useRouter()
   const [documents, setDocuments] = useState<UploadedDocument[]>(mockDocuments)
   const [dragActive, setDragActive] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({})
@@ -133,6 +135,15 @@ export function DocumentUploadInterface() {
           throw new Error(data?.detail || data?.error || `Upload failed (${res.status})`)
         }
 
+        const redirectUrl: string | undefined = data.redirect_url || (data.analysis_id ? `/insights/${data.analysis_id}` : undefined)
+        if (redirectUrl) {
+          setUploadProgress((prev) => ({ ...prev, [newDoc.id]: 100 }))
+          router.push(redirectUrl)
+          try { incLocalStat(user?.id, 'docs') } catch {}
+          return
+        }
+
+        // Fallback: if no redirect info, keep legacy inline summary
         const advice = data.advice || {}
         const adviceSummary: string = advice.summary || 'Analysis complete.'
         const improvements: string[] = Array.isArray(advice.improvements) ? advice.improvements : []
