@@ -37,8 +37,8 @@ async function fetchAnalysis(analysisId: string): Promise<AnalysisResponse | Ana
   return json as AnalysisResponse
 }
 
-export default async function InsightsPage({ params }: { params: { analysisId: string } }) {
-  const { analysisId } = params
+export default async function InsightsPage({ params }: { params: Promise<{ analysisId: string }> }) {
+  const { analysisId } = await params
   const data = await fetchAnalysis(analysisId)
   if (!data.success) {
     const status = data.status
