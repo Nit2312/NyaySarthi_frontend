@@ -216,12 +216,12 @@ export function DocumentUploadInterface() {
 
   return (
     <div className="space-y-6">
-      <div className="glass-ultra rounded-3xl p-8 glow-medium border border-white/20">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-premium text-glow mb-4">
+      <div className="glass-ultra rounded-3xl p-4 sm:p-6 md:p-8 glow-medium border border-white/20">
+        <div className="text-center mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-premium text-glow mb-3 sm:mb-4">
             {language === "en" ? "Document Upload & Analysis" : "दस्तावेज़ अपलोड और विश्लेषण"}
           </h1>
-          <p className="text-muted-foreground text-lg font-medium">
+          <p className="text-muted-foreground text-base sm:text-lg font-medium">
             {language === "en"
               ? "Upload your legal documents for AI-powered analysis and insights"
               : "AI-संचालित विश्लेषण और अंतर्दृष्टि के लिए अपने कानूनी दस्तावेज़ अपलोड करें"}
@@ -229,7 +229,7 @@ export function DocumentUploadInterface() {
         </div>
 
         <div
-          className={`relative border-2 border-dashed rounded-3xl p-12 text-center transition-all duration-300 ${
+          className={`relative border-2 border-dashed rounded-3xl p-6 sm:p-8 md:p-12 text-center transition-all duration-300 ${
             dragActive
               ? "border-primary bg-primary/5 glow-strong"
               : "border-white/20 glass hover:border-white/40 hover:glow-subtle"
@@ -239,15 +239,15 @@ export function DocumentUploadInterface() {
           onDragOver={handleDrag}
           onDrop={handleDrop}
         >
-          <div className="space-y-6">
-            <div className="w-24 h-24 mx-auto bg-gradient-to-br from-primary to-accent rounded-3xl flex items-center justify-center glow-medium floating-element">
-              <Upload className="w-12 h-12 text-white" />
+          <div className="space-y-4 sm:space-y-6">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto bg-gradient-to-br from-primary to-accent rounded-3xl flex items-center justify-center glow-medium floating-element">
+              <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-premium mb-2">
+              <h3 className="text-lg sm:text-xl font-bold text-premium mb-2">
                 {language === "en" ? "Drop your documents here" : "अपने दस्तावेज़ यहाँ छोड़ें"}
               </h3>
-              <p className="text-muted-foreground font-medium mb-4">
+              <p className="text-muted-foreground font-medium mb-3 sm:mb-4">
                 {language === "en" ? "or click to browse and select files" : "या फ़ाइलें ब्राउज़ करने और चुनने के लिए क्लिक करें"}
               </p>
               <div className="flex flex-wrap justify-center gap-2 text-sm text-muted-foreground">

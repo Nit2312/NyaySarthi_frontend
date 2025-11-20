@@ -95,6 +95,8 @@ export function DashboardLayout({ children, currentPage = "dashboard" }: Dashboa
 
       <div className="flex relative z-10">
         <aside
+          id="dashboard-sidebar"
+          aria-hidden={!sidebarOpen ? true : undefined}
           className={`fixed inset-y-0 left-0 z-50 glass-ultra border-r border-white/20 transform transition-all duration-300 ease-in-out ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           } lg:translate-x-0 lg:static lg:inset-0 ${sidebarCollapsed ? 'w-20' : 'w-72'}`}
@@ -205,6 +207,9 @@ export function DashboardLayout({ children, currentPage = "dashboard" }: Dashboa
                   size="sm"
                   className="lg:hidden glass glow-subtle"
                   onClick={toggleSidebar}
+                  aria-controls="dashboard-sidebar"
+                  aria-expanded={sidebarOpen}
+                  aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
                 >
                   <Menu className="w-5 h-5" />
                 </Button>

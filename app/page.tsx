@@ -31,7 +31,7 @@ export default function HomePage() {
                 fill
                 priority
                 className="object-cover object-center"
-                sizes="800px"
+                sizes="100vw"
               />
               {/* Subtle dark scrim for readability */}
               <div className="absolute inset-0 bg-black/45" />
@@ -40,7 +40,7 @@ export default function HomePage() {
 
           {/* Floating orbs removed as requested */}
 
-          <div className="relative z-10">
+          <div className="relative z-10 pt-16">
             <Navigation />
             <LanguageToggle />
             <section id="home" className="scroll-mt-24">

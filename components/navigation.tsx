@@ -46,8 +46,8 @@ function NavigationContent() {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-40 glass-strong border-b border-border/20">
-        <div className="container mx-auto px-4">
+      <nav className="fixed top-0 left-0 right-0 z-40 glass-strong border-b border-border/20 pt-[env(safe-area-inset-top)]">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2">
@@ -151,14 +151,22 @@ function NavigationContent() {
             </div>
 
             {/* Mobile Menu Button */}
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={toggleMenu}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="md:hidden"
+              onClick={toggleMenu}
+              aria-expanded={isMenuOpen}
+              aria-controls="mobile-nav"
+              aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+            >
               {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
           </div>
 
           {/* Mobile Navigation */}
           {isMenuOpen && (
-            <div className="md:hidden py-4 border-t border-border/20">
+            <div id="mobile-nav" className="md:hidden py-4 border-t border-border/20">
               <div className="flex flex-col gap-2">
                 <Link href="#home">
                   <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setIsMenuOpen(false)}>

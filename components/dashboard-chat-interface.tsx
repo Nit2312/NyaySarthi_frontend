@@ -47,6 +47,7 @@ export function DashboardChatInterface() {
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string>(
     () => (typeof window !== 'undefined' ? localStorage.getItem('conversationId') || '' : '')
   )
@@ -379,10 +380,31 @@ export function DashboardChatInterface() {
   }, [conversationId, threads, user?.id])
 
   return (
-    <div className="h-[calc(100vh-120px)] flex gap-4">
-      {/* Collapsible Recent Chats Sidebar */}
-      <div className={`transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-14' : 'w-64'} flex flex-col`}>
-        <Card className="glass-ultra border border-white/10 h-full flex flex-col shadow-2xl">
+    <div className="flex flex-col md:h-[calc(100vh-120px)] gap-3 md:gap-4">
+      {/* Mobile top bar */}
+      <div className="md:hidden flex items-center justify-between gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setMobileThreadsOpen(true)}
+          className="glass"
+          aria-controls="mobile-threads-panel"
+          aria-expanded={mobileThreadsOpen}
+          aria-label="Open chat threads"
+        >
+          <MessageSquare className="w-4 h-4 mr-2" /> Threads
+        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handleDownloadPDF} className="glass">
+            <Download className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="md:flex md:flex-row md:gap-4">
+        {/* Collapsible Recent Chats Sidebar (hidden on mobile, shown via overlay) */}
+        <div className={`hidden md:flex transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-14' : 'w-64'} flex-col`}>
+          <Card className="glass-ultra border border-white/10 h-full flex flex-col shadow-2xl">
           <CardHeader className="pb-3 pt-4 px-4 border-b border-white/5">
             <div className="flex items-center justify-between">
               {!sidebarCollapsed && (
@@ -515,10 +537,10 @@ export function DashboardChatInterface() {
         )}
 
         {/* Messages + Input (single block like ChatGPT) */}
-        <Card className="glass-ultra border border-white/10 flex-1 min-h-0 shadow-2xl">
+        <Card className="glass-ultra border border-white/10 flex-1 min-h-[60vh] md:min-h-0 shadow-2xl">
           <CardContent className="p-0 h-full flex flex-col">
             {/* Scrollable messages area */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-3">
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-3 max-h-[calc(100vh-280px)] md:max-h-none">
               <div className="space-y-2">
                 {messages.map((message, idx) => (
                   <div
@@ -534,13 +556,13 @@ export function DashboardChatInterface() {
                     )}
 
                     <div
-                      className={`max-w-[82%] rounded-2xl px-4 py-2 transition-all ${
+                      className={`max-w-[92%] md:max-w-[82%] rounded-2xl px-3.5 py-2 transition-all ${
                         message.sender === "user"
                           ? "bg-white text-neutral-900 ml-auto shadow-lg border border-white/60"
                           : "bg-white/[0.04] text-white/95 border border-white/10"
                       }`}
                     >
-                      <div className={`text-[15px] leading-7 whitespace-pre-wrap break-words ${message.sender === 'user' ? 'text-neutral-900' : 'text-white/95'}`}>{message.content}</div>
+                      <div className={`text-[14px] sm:text-[15px] leading-7 whitespace-pre-wrap break-words ${message.sender === 'user' ? 'text-neutral-900' : 'text-white/95'}`}>{message.content}</div>
                       <div className="flex items-center justify-between mt-1.5 gap-3">
                         <p className={`text-[11px] leading-none ${message.sender === 'user' ? 'text-neutral-600' : 'text-white/50'}`}>
                           {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -589,7 +611,7 @@ export function DashboardChatInterface() {
               <div ref={messagesEndRef} />
             </div>
             {/* Docked input footer inside the same card */}
-            <div className="border-t border-white/5 px-2 py-1 bg-white/[0.02]">
+            <div className="border-t border-white/5 px-2 py-2 bg-white/[0.02]">
               <div className="flex gap-2 items-end">
                   <div className="flex-1 relative">
                     <Input
@@ -598,7 +620,7 @@ export function DashboardChatInterface() {
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
-                      className="bg-white/5 border-white/10 pr-24 py-2 text-[15px] placeholder:text-white/40 focus:bg-white/10 focus:border-primary/50 transition-all rounded-xl"
+                      className="bg-white/5 border-white/10 pr-24 py-3 text-[15px] placeholder:text-white/40 focus:bg-white/10 focus:border-primary/50 transition-all rounded-xl"
                       disabled={isTyping}
                     />
                     {listening && (
@@ -606,7 +628,7 @@ export function DashboardChatInterface() {
                         {language === 'en' ? 'Listening...' : 'सुन रहा हूँ...'} {interimTranscript}
                       </div>
                     )}
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -642,7 +664,7 @@ export function DashboardChatInterface() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!inputValue.trim() || isTyping}
-                    className="px-3.5 py-2 bg-primary hover:bg-primary/90 transition-all rounded-xl group shadow-lg"
+                    className="px-4 py-3 bg-primary hover:bg-primary/90 transition-all rounded-xl group shadow-lg"
                   >
                     <Send className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                   </Button>
@@ -662,6 +684,54 @@ export function DashboardChatInterface() {
           </CardContent>
         </Card>
       </div>
+      {/* Close md:flex wrapper */}
+      </div>
+
+      {/* Mobile Threads Overlay */}
+      {mobileThreadsOpen && (
+        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="mobile-threads-title" id="mobile-threads-panel">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setMobileThreadsOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 top-16 bg-background border-t border-white/10 rounded-t-2xl p-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 id="mobile-threads-title" className="text-lg font-semibold">Threads</h3>
+              <Button variant="ghost" size="sm" onClick={() => setMobileThreadsOpen(false)} aria-label="Close threads">✕</Button>
+            </div>
+            {/* Reuse the threads list */}
+            <div className="space-y-2">
+              <Button
+                onClick={() => { startNewChat(); setMobileThreadsOpen(false) }}
+                className="w-full justify-start gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/30 text-white transition-all py-2.5 text-sm font-medium mb-2"
+              >
+                <Plus className="w-4 h-4" />
+                {language === "en" ? "New Chat" : "नई चैट"}
+              </Button>
+              {threads.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  {language === 'en' ? 'No chats yet. Start a new chat.' : 'अभी कोई चैट नहीं। नई चैट शुरू करें।'}
+                </div>
+              ) : (
+                threads
+                  .sort((a,b) => b.updatedAt - a.updatedAt)
+                  .map((chat) => (
+                    <div
+                      key={chat.id}
+                      onClick={() => { loadPreviousChat(chat.id); setMobileThreadsOpen(false) }}
+                      className={`rounded-lg cursor-pointer transition-all duration-200 p-3 ${
+                        activeChat === chat.id 
+                          ? "bg-white/10 border-l-2 border-primary shadow-lg" 
+                          : "bg-white/[0.02] hover:bg-white/5 border-l-2 border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-1.5">
+                        <h4 className="font-medium text-sm text-white/90 truncate pr-2">{(chat as any).title || (language==='en'?'Untitled':'शीर्षक रहित')}</h4>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
