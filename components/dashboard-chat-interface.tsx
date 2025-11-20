@@ -382,12 +382,12 @@ export function DashboardChatInterface() {
   return (
     <div className="flex flex-col md:h-[calc(100vh-120px)] gap-3 md:gap-4">
       {/* Mobile top bar */}
-      <div className="md:hidden flex items-center justify-between gap-2">
+      <div className="md:hidden flex items-center justify-between gap-2 px-1">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => setMobileThreadsOpen(true)}
-          className="glass"
+          className="glass rounded-full px-3"
           aria-controls="mobile-threads-panel"
           aria-expanded={mobileThreadsOpen}
           aria-label="Open chat threads"
@@ -395,7 +395,7 @@ export function DashboardChatInterface() {
           <MessageSquare className="w-4 h-4 mr-2" /> Threads
         </Button>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleDownloadPDF} className="glass">
+          <Button variant="ghost" size="sm" onClick={handleDownloadPDF} className="glass rounded-full h-9 w-9 p-0">
             <Download className="w-4 h-4" />
           </Button>
         </div>
@@ -537,11 +537,11 @@ export function DashboardChatInterface() {
         )}
 
         {/* Messages + Input (single block like ChatGPT) */}
-        <Card className="glass-ultra border border-white/10 flex-1 min-h-[60vh] md:min-h-0 shadow-2xl">
+        <Card className="glass-ultra/50 border border-white/5 flex-1 min-h-[60vh] md:min-h-0 shadow-none">
           <CardContent className="p-0 h-full flex flex-col">
             {/* Scrollable messages area */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-3 max-h-[calc(100vh-280px)] md:max-h-none">
-              <div className="space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-3 pt-2 pb-3 max-h-[calc(100vh-280px)] md:max-h-none">
+              <div className="space-y-1.5">
                 {messages.map((message, idx) => (
                   <div
                     key={message.id}
@@ -556,14 +556,14 @@ export function DashboardChatInterface() {
                     )}
 
                     <div
-                      className={`max-w-[92%] md:max-w-[82%] rounded-2xl px-3.5 py-2 transition-all ${
+                      className={`max-w-[92%] md:max-w-[82%] rounded-2xl px-3.5 py-2 transition-colors ${
                         message.sender === "user"
-                          ? "bg-white text-neutral-900 ml-auto shadow-lg border border-white/60"
-                          : "bg-white/[0.04] text-white/95 border border-white/10"
+                          ? "bg-white text-neutral-900 ml-auto border border-white/40"
+                          : "bg-white/[0.06] text-white/95 border border-white/10"
                       }`}
                     >
                       <div className={`text-[14px] sm:text-[15px] leading-7 whitespace-pre-wrap break-words ${message.sender === 'user' ? 'text-neutral-900' : 'text-white/95'}`}>{message.content}</div>
-                      <div className="flex items-center justify-between mt-1.5 gap-3">
+                      <div className="flex items-center justify-between mt-1 gap-3">
                         <p className={`text-[11px] leading-none ${message.sender === 'user' ? 'text-neutral-600' : 'text-white/50'}`}>
                           {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </p>
@@ -611,8 +611,8 @@ export function DashboardChatInterface() {
               <div ref={messagesEndRef} />
             </div>
             {/* Docked input footer inside the same card */}
-            <div className="border-t border-white/5 px-2 py-2 bg-white/[0.02]">
-              <div className="flex gap-2 items-end">
+            <div className="border-t border-white/5 px-2 py-2 bg-transparent">
+              <div className="flex gap-2 items-center">
                   <div className="flex-1 relative">
                     <Input
                       ref={inputRef}
@@ -620,7 +620,7 @@ export function DashboardChatInterface() {
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder={language === "en" ? "Ask about Indian law..." : "भारतीय कानून के बारे में पूछें..."}
-                      className="bg-white/5 border-white/10 pr-24 py-3 text-[15px] placeholder:text-white/40 focus:bg-white/10 focus:border-primary/50 transition-all rounded-xl"
+                      className="bg-white/[0.06] border-white/10 pr-28 pl-3 py-3 text-[15px] placeholder:text-white/40 focus:bg-white/[0.08] focus:border-primary/40 transition-all rounded-full"
                       disabled={isTyping}
                     />
                     {listening && (
@@ -633,7 +633,7 @@ export function DashboardChatInterface() {
                       variant="ghost"
                       size="sm"
                       onClick={handleDownloadPDF}
-                      className="h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg"
+                      className="h-9 w-9 p-0 hover:bg-white/10 transition-all rounded-full"
                       title={language==='en' ? 'Download chat as PDF' : 'चैट को PDF में डाउनलोड करें'}
                       aria-label={language==='en' ? 'Download' : 'डाउनलोड'}
                     >
@@ -643,7 +643,7 @@ export function DashboardChatInterface() {
                       variant="ghost"
                       size="sm"
                         onClick={handleFileUpload}
-                        className={`h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg ${listening ? 'opacity-50' : ''}`}
+                        className={`h-9 w-9 p-0 hover:bg-white/10 transition-all rounded-full ${listening ? 'opacity-50' : ''}`}
                         disabled={listening}
                       >
                         <Paperclip className="w-4 h-4 text-white/60" />
@@ -652,9 +652,9 @@ export function DashboardChatInterface() {
                         variant="ghost"
                         size="sm"
                         onClick={toggleVoiceInput}
-                        className={`h-8 w-8 p-0 hover:bg-white/10 transition-all rounded-lg ${listening ? 'bg-primary/20 text-primary' : ''}`}
+                        className={`h-9 w-9 p-0 hover:bg-white/10 transition-all rounded-full ${listening ? 'bg-primary/20 text-primary' : ''}`}
                         aria-pressed={listening}
-                        title={sttSupported ? (listening ? (language === 'en' ? 'Stop voice input' : 'वॉइस इनपुट रोकें') : (language === 'en' ? 'Start voice input' : 'वॉइस इनपुट शुरू करें')) : (language === 'en' ? 'Voice input not supported' : 'वॉइस इनपुट समर्थित नहीं है')}
+                        title={sttSupported ? (listening ? (language === 'en' ? 'Stop voice input' : 'वॉइस इनपुट रोकें') : (language === 'en' ? 'Start voice input' : 'வॉइस इनपुट शुरू करें')) : (language === 'en' ? 'Voice input not supported' : 'वॉइस इनपुट समर्थित नहीं है')}
                         disabled={isTyping}
                       >
                         <Mic className={`w-4 h-4 ${listening ? 'animate-pulse text-primary' : 'text-white/60'}`} />
@@ -664,9 +664,9 @@ export function DashboardChatInterface() {
                   <Button
                     onClick={handleSendMessage}
                     disabled={!inputValue.trim() || isTyping}
-                    className="px-4 py-3 bg-primary hover:bg-primary/90 transition-all rounded-xl group shadow-lg"
+                    className="h-11 w-11 bg-primary hover:bg-primary/90 transition-all rounded-full group shadow-md flex items-center justify-center"
                   >
-                    <Send className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    <Send className="w-4 h-4 -translate-x-[1px] group-hover:translate-x-0 transition-transform" />
                   </Button>
                 </div>
 
