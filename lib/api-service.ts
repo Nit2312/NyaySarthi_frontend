@@ -311,7 +311,7 @@ class ApiService {
     ik_error?: string;
   }> {
     const requestId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    const url = `${API_BASE_URL}/chat`;
+    const url = `/api/chat`;
     
     try {
       const response = await fetch(url, {
@@ -356,7 +356,7 @@ class ApiService {
     conversation_id?: string;
   }> {
     const requestId = `agentic-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
-    const url = `${API_BASE_URL}/agentic/chat`
+    const url = `/api/agentic/chat`
 
     try {
       const resp = await fetch(url, {
