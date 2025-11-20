@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_request: Request, context: any) {
   const { params } = context
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
   const targetUrl = `${backendUrl}/api/analyze-document/${encodeURIComponent(params.analysisId)}`
 
   try {

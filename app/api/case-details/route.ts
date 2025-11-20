@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const requestId = `api-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
   const targetUrl = `${backendUrl}/api/case-details`;
 
   console.log(`[${requestId}] Proxying request to: ${targetUrl}`);
