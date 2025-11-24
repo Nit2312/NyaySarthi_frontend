@@ -110,14 +110,6 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  // Prevent the outer page from scrolling while this chat view is mounted
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
 
   // Sync recent chats from Supabase on mount to avoid stale local cache (only chats that still have messages)
   useEffect(() => {
@@ -254,8 +246,8 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="fixed inset-0 w-full overflow-hidden bg-background">
-      <div className="h-full w-full overflow-hidden flex justify-center">
+    <div className="fixed inset-0 w-full bg-background">
+      <div className="h-full w-full flex justify-center">
         <div className="h-full w-full max-w-[1400px] grid grid-cols-1 md:grid-cols-[280px_1fr]">
           {/* Sidebar (md+) */}
           <aside className="hidden md:flex flex-col border-r bg-muted/20">

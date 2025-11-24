@@ -380,7 +380,7 @@ export function DashboardChatInterface() {
   }, [conversationId, threads, user?.id])
 
   return (
-    <div className="flex flex-col md:h-[calc(100vh-120px)] gap-3 md:gap-4">
+    <div className="flex flex-col flex-1 min-h-0 gap-3 md:gap-4">
       {/* Mobile top bar */}
       <div className="md:hidden flex items-center justify-between gap-2 px-1">
         <Button
@@ -401,7 +401,7 @@ export function DashboardChatInterface() {
         </div>
       </div>
 
-      <div className="md:flex md:flex-row md:gap-4">
+      <div className="md:flex md:flex-row md:gap-4 flex-1 min-h-0">
         {/* Collapsible Recent Chats Sidebar (hidden on mobile, shown via overlay) */}
         <div className={`hidden md:flex transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-14' : 'w-64'} flex-col`}>
           <Card className="glass-ultra border border-white/10 h-full flex flex-col shadow-2xl">
@@ -537,10 +537,15 @@ export function DashboardChatInterface() {
         )}
 
         {/* Messages + Input (single block like ChatGPT) */}
-        <Card className="glass-ultra/50 border border-white/5 flex-1 min-h-[60vh] md:min-h-0 shadow-none">
-          <CardContent className="p-0 h-full flex flex-col">
+        <Card className="bg-transparent border-0 shadow-none flex-1 min-h-0">
+          <CardContent className="p-0 h-full flex flex-col min-h-0">
             {/* Scrollable messages area */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-3 pt-2 pb-3 max-h-[calc(100vh-280px)] md:max-h-none">
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-3 pt-2 pb-3">
+              {messages.length <= 1 ? (
+                <div className="h-full w-full flex items-center justify-center">
+                  <p className="text-center text-white/80 text-lg">{language === 'en' ? 'Where should we begin?' : 'हम कहाँ से शुरू करें?'}</p>
+                </div>
+              ) : (
               <div className="space-y-1.5">
                 {messages.map((message, idx) => (
                   <div
@@ -608,10 +613,11 @@ export function DashboardChatInterface() {
                   </div>
                 )}
               </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
             {/* Docked input footer inside the same card */}
-            <div className="border-t border-white/5 px-2 py-2 bg-transparent">
+            <div className="border-t border-white/5 px-2 py-2 bg-transparent pb-[env(safe-area-inset-bottom)]">
               <div className="flex gap-2 items-center">
                   <div className="flex-1 relative">
                     <Input

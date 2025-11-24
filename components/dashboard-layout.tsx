@@ -77,7 +77,7 @@ export function DashboardLayout({ children, currentPage = "dashboard" }: Dashboa
   }, [sidebarCollapsed])
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-background">
+    <div className="min-h-screen relative overflow-x-hidden bg-background">
       <div className="absolute inset-0 bg-background">
         <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/15 to-background" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/[0.01] rounded-full blur-3xl floating-slow" />
@@ -231,7 +231,7 @@ export function DashboardLayout({ children, currentPage = "dashboard" }: Dashboa
             </div>
           </header>
 
-          <main className="p-4 lg:p-6">{children}</main>
+          <main className="flex flex-col min-h-[calc(100svh-4rem)] p-3 sm:p-4 lg:p-6 pb-[env(safe-area-inset-bottom)] overflow-y-auto">{children}</main>
         </div>
       </div>
 

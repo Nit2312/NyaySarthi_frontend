@@ -215,8 +215,8 @@ export function DocumentUploadInterface() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="glass-ultra rounded-3xl p-4 sm:p-6 md:p-8 glow-medium border border-white/20">
+    <div className="space-y-6 max-w-screen-md mx-auto px-3 sm:px-0 overflow-x-hidden">
+      <div className="glass-ultra rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 sm:glow-medium border border-white/20">
         <div className="text-center mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-premium text-glow mb-3 sm:mb-4">
             {language === "en" ? "Document Upload & Analysis" : "दस्तावेज़ अपलोड और विश्लेषण"}
@@ -229,10 +229,10 @@ export function DocumentUploadInterface() {
         </div>
 
         <div
-          className={`relative border-2 border-dashed rounded-3xl p-6 sm:p-8 md:p-12 text-center transition-all duration-300 ${
+          className={`relative w-full border-2 border-dashed rounded-2xl sm:rounded-3xl p-6 sm:p-8 md:p-12 text-center transition-all duration-300 overflow-hidden ${
             dragActive
-              ? "border-primary bg-primary/5 glow-strong"
-              : "border-white/20 glass hover:border-white/40 hover:glow-subtle"
+              ? "border-primary bg-primary/5 sm:glow-strong"
+              : "border-white/20 glass hover:border-white/40 sm:hover:glow-subtle"
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
@@ -240,7 +240,7 @@ export function DocumentUploadInterface() {
           onDrop={handleDrop}
         >
           <div className="space-y-4 sm:space-y-6">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto bg-gradient-to-br from-primary to-accent rounded-3xl flex items-center justify-center glow-medium floating-element">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto bg-gradient-to-br from-primary to-accent rounded-2xl sm:rounded-3xl flex items-center justify-center sm:glow-medium sm:floating-element">
               <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
             </div>
             <div>
@@ -273,7 +273,7 @@ export function DocumentUploadInterface() {
             </div>
             <Button
               size="lg"
-              className="glass-strong glow-medium hover:glow-strong transition-all duration-300 px-8 py-4"
+              className="glass-strong glow-medium hover:glow-strong transition-all duration-300 px-6 py-3 rounded-full w-full sm:w-auto"
               onClick={() => document.getElementById("file-input")?.click()}
             >
               <Upload className="w-5 h-5 mr-2" />
@@ -290,8 +290,8 @@ export function DocumentUploadInterface() {
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="glass-ultra glow-subtle border border-white/20">
+        <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+          <Card className="glass-ultra sm:glow-subtle border border-white/20 rounded-2xl sm:rounded-3xl overflow-hidden">
             <CardContent className="p-6 text-center">
               <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 glow-medium">
                 <Sparkles className="w-8 h-8 text-white" />
@@ -342,16 +342,16 @@ export function DocumentUploadInterface() {
       </div>
 
       <Tabs defaultValue="all" className="space-y-6">
-        <TabsList className="glass-ultra p-2 h-auto glow-medium border border-white/20">
-          <TabsTrigger value="all" className="flex items-center gap-3 px-6 py-3 text-base font-medium">
+        <TabsList className="glass-ultra p-2 h-auto glow-medium border border-white/20 overflow-x-auto no-scrollbar whitespace-nowrap">
+          <TabsTrigger value="all" className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-medium">
             <FileText className="w-5 h-5" />
             {language === "en" ? "All Documents" : "सभी दस्तावेज़"}
           </TabsTrigger>
-          <TabsTrigger value="completed" className="flex items-center gap-3 px-6 py-3 text-base font-medium">
+          <TabsTrigger value="completed" className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-medium">
             <CheckCircle className="w-5 h-5" />
             {language === "en" ? "Analyzed" : "विश्लेषित"}
           </TabsTrigger>
-          <TabsTrigger value="processing" className="flex items-center gap-3 px-6 py-3 text-base font-medium">
+          <TabsTrigger value="processing" className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-medium">
             <Clock className="w-5 h-5" />
             {language === "en" ? "Processing" : "प्रसंस्करण"}
           </TabsTrigger>
@@ -361,17 +361,17 @@ export function DocumentUploadInterface() {
           {documents.map((doc) => (
             <Card
               key={doc.id}
-              className="glass-ultra glow-medium border border-white/20 hover:glow-strong transition-all duration-300"
+              className="glass-ultra sm:glow-medium border border-white/20 sm:hover:glow-strong transition-all duration-300 rounded-2xl sm:rounded-3xl overflow-hidden"
             >
               <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4 w-full">
                     <div className="w-16 h-16 glass rounded-2xl flex items-center justify-center glow-subtle">
                       {getFileIcon(doc.type)}
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3">
-                        <h3 className="font-bold text-base text-premium">{doc.name}</h3>
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <h3 className="font-bold text-base text-premium truncate">{doc.name}</h3>
                         {getStatusIcon(doc.status)}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -388,7 +388,7 @@ export function DocumentUploadInterface() {
                         )}
                       </div>
                       {uploadProgress[doc.id] !== undefined && uploadProgress[doc.id] < 100 && (
-                        <div className="w-64">
+                        <div className="w-full sm:w-64">
                           <Progress value={uploadProgress[doc.id]} className="h-2" />
                           <p className="text-xs text-muted-foreground mt-1">
                             {language === "en" ? "Uploading..." : "अपलोड हो रहा है..."} {uploadProgress[doc.id]}%
@@ -398,7 +398,7 @@ export function DocumentUploadInterface() {
                       {doc.analysis && <p className="text-sm text-muted-foreground max-w-2xl">{doc.analysis}</p>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-stretch sm:self-auto">
                     <Button
                       variant="ghost"
                       size="sm"
